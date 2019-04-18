@@ -4,16 +4,38 @@ Created on Apr 18, 2019
 @author: gjpicker
 '''
 from __future__ import absolute_import 
+from collections import OrderedDict
 # from . import model as model  
 import model as model  
 
 import torch 
 import torch.nn as nn 
 import torch.optim as optim
+from torch.optim import lr_scheduler
 
 import itertools
 
 import time 
+
+#=====START: ADDED FOR DISTRIBUTED======
+from distributed import init_distributed, apply_gradient_allreduce, reduce_tensor
+from torch.utils.data.distributed import DistributedSampler
+#=====END:   ADDED FOR DISTRIBUTED======
+
+
+import torch.utils.data as t_data
+
+from utils.visualizer import Visualizer
+import utils.util as util
+
+
+def get_scheduler(optimizer, opt):
+    def lambda_rule(epoch):
+        lr_l = 1.0 - max(0, epoch + 2 - opt.niter) / float(opt.niter_decay + 1)
+        return lr_l
+    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
+    return scheduler
+
 ##############################################################################
 # Classes
 ##############################################################################
@@ -87,40 +109,41 @@ class GANLoss(nn.Module):
 
 
 class Treainer(object):
-    def __init__(self,opt=None,train_dt =None,valid_dt=None):
+    def __init__(self,opt=None,train_dt =None,valid_dt=None,dis_list=[]):
         self.device =torch.device("cuda")
-        print ("ini...")
 
-        tm_list=[]
-        start_ = time.time() 
+        self.opt = opt 
+
+        self.visualizer = Visualizer(opt)
+
+        num_gpus = torch.cuda.device_count()
+        #dis_list[1]
+        print (dis_list)
+#torch.cuda.device_count()
+        self.rank =dis_list[0]
+        print (self.rank)
+
+        #=====START: ADDED FOR DISTRIBUTED======
+        if num_gpus > 1:
+            #init_distributed(rank, num_gpus, group_name, **dist_config)
+            dist_config= dis_list[3]
+            init_distributed(dis_list[0], dis_list[1], dis_list[2], **dist_config)
+        #=====END:   ADDED FOR DISTRIBUTED======
+
+
         
         self.G= model.G() 
-        print ("create G")
-        
-        end_ = time.time() 
-        tm_list .append(end_-start_)
-        print (tm_list,"G")
-        start_ = time.time()
         
         self.D_vgg= model. D(input_c=512,input_width=18) 
-        end_ = time.time() 
-        tm_list .append(end_-start_)
-        start_ = time.time()
-        print (tm_list,"d1")
         
         self.D = model.D()
-        end_ = time.time() 
-        tm_list .append(end_-start_)
-        start_ = time.time()
-        print (tm_list,"d2")
         
-        print (self.G, self.D ,self.D_vgg )
         
         self.vgg = model. vgg19_withoutbn_customefinetune()
-        end_ = time.time() 
-        tm_list .append(end_-start_)
-        start_ = time.time()
-        print (tm_list,"d3")
+        for p in self.vgg.parameters():
+            p.requires_grad = True
+
+        print (self.G,self.D)
 
         model.init_weights(self.D)
         model.init_weights(self.D_vgg)
@@ -131,7 +154,17 @@ class Treainer(object):
         self.D_vgg= self.D_vgg.to(self.device)
         self.G= self.G.to(self.device)
 
-        print (tm_list,"all _create")
+        #=====START: ADDED FOR DISTRIBUTED======
+        if num_gpus > 1:
+            #self.vgg = apply_gradient_allreduce(self.vgg)
+            self.D_vgg = apply_gradient_allreduce(self.D_vgg)
+            self.D = apply_gradient_allreduce(self.D)
+            self.G = apply_gradient_allreduce(self.G)
+            
+        #=====END:   ADDED FOR DISTRIBUTED======
+
+
+
         self.optim_G= optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
          lr=opt.lr, betas=opt.betas, weight_decay=0.0)
          
@@ -140,10 +173,29 @@ class Treainer(object):
             lr=opt.lr,
          )
         print ("create dataset ")
-        self.opt = opt 
+        self.schedulers = []
+        self.optimizers = []
+        self.optimizers.append(self.optim_G)
+        self.optimizers.append(self.optim_D)
+        for optimizer in self.optimizers:
+            self.schedulers.append(get_scheduler(optimizer, self.opt))
+
+
+
+
         
-        self.dt_train = train_dt 
-        self.dt_valid = valid_dt
+        # =====START: ADDED FOR DISTRIBUTED======
+        train_sampler = DistributedSampler(train_dt) if num_gpus > 1 else None
+        # =====END:   ADDED FOR DISTRIBUTED======
+
+        kw ={"pin_memory":True , "num_workers":opt.num_workers } if torch.cuda.is_available() else {}
+        dl_c =t_data.DataLoader(train_dt ,batch_size=opt.batch_size, **kw ,\
+             sampler=train_sampler , drop_last=True)
+
+
+        self.dt_train = dl_c
+#train_dt 
+        #self.dt_valid = valid_dt
 
 
         self.critic_pixel = torch.nn.MSELoss().to(self.device)
@@ -152,10 +204,63 @@ class Treainer(object):
     
     def run(self):
         
-        for epoch in range(self.opt.epoches):
-            for input_lr ,input_hr , _  in self.dt_train :
+        total_steps=0 
+        opt= self.opt 
+        dataset_size= len(self.dt_train) * opt.batch_size 
+
+        for epoch in range(self.opt.epoches_warm):
+            epoch_start_time = time.time()
+            epoch_iter = 0
+
+            for input_lr ,input_hr , cubic_hr  in self.dt_train :
+                iter_start_time = time.time()
+
                 self. input_lr = input_lr .to(self.device)
                 self. input_hr = input_hr .to(self.device)
+                self. input_cubic_hr = cubic_hr
+
+                self.forward()
+                self.optim_G .zero_grad ()
+                self.warm_loss()
+                self.optim_G.step()
+
+
+                self.visualizer.reset()
+                total_steps += opt.batch_size
+                epoch_iter += opt.batch_size
+
+                if self.rank !=0 :
+                   continue
+                if total_steps % opt.display_freq == 0:
+                    save_result = total_steps % opt.update_html_freq == 0
+                    self.visualizer.display_current_results(self.get_current_visuals(), opt.epoches, save_result)
+
+                if total_steps % opt.print_freq == 0:
+                    errors = self.get_current_errors()
+                    t = (time.time() - iter_start_time) / opt.batch_size
+                    self.visualizer.print_current_errors(epoch , epoch_iter, errors, t)
+                    if opt.display_id > 0:
+                        self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
+
+
+
+
+
+
+
+        self.loss_w_g=torch.tensor(0)
+
+
+        for epoch in range(self.opt.epoches_warm , self.opt.epoches_warm +self.opt.epoches):
+            epoch_start_time = time.time()
+            epoch_iter = 0
+
+            for input_lr ,input_hr , cubic_hr  in self.dt_train :
+                iter_start_time = time.time()
+
+                self. input_lr = input_lr .to(self.device)
+                self. input_hr = input_hr .to(self.device)
+                self. input_cubic_hr = cubic_hr
                 
                 self.forward()
                 self.optim_G .zero_grad ()
@@ -165,6 +270,26 @@ class Treainer(object):
                 self.optim_D .zero_grad ()
                 self.d_loss()
                 self.optim_D.step()
+
+
+                self.visualizer.reset()
+                total_steps += opt.batch_size
+                epoch_iter += opt.batch_size
+
+                if self.rank !=0 :
+                   continue
+                if total_steps % opt.display_freq == 0:
+                    save_result = total_steps % opt.update_html_freq == 0
+                    self.visualizer.display_current_results(self.get_current_visuals(), opt.epoches, save_result)
+
+                if total_steps % opt.print_freq == 0:
+                    errors = self.get_current_errors()
+                    t = (time.time() - iter_start_time) / opt.batch_size
+                    self.visualizer.print_current_errors(epoch , epoch_iter, errors, t)
+                    if opt.display_id > 0:
+                        self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
+
+
                 
                 
     def forward(self,):
@@ -172,21 +297,42 @@ class Treainer(object):
 #         self.input_hr 
         pass 
         
+    def warm_loss(self):
+
+        #x_f_fake= self.vgg(self.output_hr)
+        #x_f_real= self.vgg(self.input_hr)
+
+        ## pixel 
+        #self.loss_G_p = self.critic_pixel (x_f_fake , x_f_real ) 
+        self.loss_w_g = self.critic_pixel(self.output_hr , self.input_hr )
+
+        self.loss_w_g.backward()
+
+
         
     
     def g_loss (self,):
-        d_fake = self.D(self.output_hr)
         
-        self.loss_gan_g = self.gan_loss (d_fake,True )
-        
-        ## pixel 
-        self.loss_p = self.critic_pixel (self.output_hr , self.input_hr )
+        x_f_fake= self.vgg(self.output_hr) 
 
-        self.loss_g = self.loss_gan_g + self.loss_p
+        x_f_real= self.vgg(self.input_hr) 
+
+        
+        d_fake = self.D(self.output_hr)
+        fd_fake = self.D_vgg(x_f_fake)
+
+        self.loss_G_g = self.gan_loss (d_fake,True )
+        self.loss_G_fg = self.gan_loss (fd_fake,True )
+
+        ## pixel 
+        #self.loss_G_p = self.critic_pixel (self.output_hr , self.input_hr )
+        self.loss_G_p = self.critic_pixel (x_f_fake,x_f_real )
+
+        self.loss_g = self.opt.lambda_r *( self.loss_G_g + self.loss_G_fg) + self.loss_G_p
 
         self.loss_g.backward()
         
-        print ("loss_g",self.loss_g.item() )
+        #print ("loss_g",self.loss_g.item() )
         pass 
         
     def d_loss (self,):
@@ -201,25 +347,44 @@ class Treainer(object):
         vgg_d_real = self.D_vgg(x_f_real)
         
         
-        self.loss_d_fake = self.gan_loss (d_fake,False )
-        self.loss_d_real = self.gan_loss (d_real,True )
+        self.loss_D_f = self.gan_loss (d_fake,False )
+        self.loss_D_r = self.gan_loss (d_real,True )
         
-#         self.loss_d_f_fake = self.gan_loss (vgg_d_fake,False )
-#         self.loss_d_f_real = self.gan_loss (vgg_d_real,True )
+        self.loss_Df_f = self.gan_loss (vgg_d_fake,False )
+        self.loss_Df_r = self.gan_loss (vgg_d_real,True )
         
-        self.loss_d_f_fake = 0
-        self.loss_d_f_real = 0
+        #self.loss_d_f_fake = 0
+        #self.loss_d_f_real = 0
         
         
-        total_d_gan = self.loss_d_fake+ self.loss_d_real 
-        total_d_f_gan = \
-            self.loss_d_f_fake+self.loss_d_f_real
             
-        loss_d =  total_d_gan +   self.opt.lambda_r * total_d_f_gan 
-        print ("loss_d",loss_d.item() )
+        loss_d =self.loss_D_f+ self.loss_D_r +self.loss_Df_f+\
+            self.loss_Df_r
+        #print ("loss_d",loss_d.item() )
         
         loss_d.backward()
         
+    def get_current_errors(self):
+        return OrderedDict([('G_p', self.loss_G_p.item() if hasattr(self,"loss_G_p") else 0 ),
+                            ('G_fg', self.loss_G_fg.item()  if hasattr(self,"loss_G_fg") else 0 ),
+                            ('G_g', self.loss_G_g.item()  if hasattr(self,"loss_G_g") else 0 ),
+                            ('D_f_real', self.loss_Df_r.item()  if hasattr(self,"loss_Df_r") else 0 ),
+                            ('D_f_fake', self.loss_Df_f.item()  if hasattr(self,"loss_Df_f") else 0 ),
+                            ('D_real', self.loss_D_r.item()  if hasattr(self,"loss_D_r") else 0 ) ,
+                            ('D_fake', self.loss_D_f.item()  if hasattr(self,"loss_D_f") else 0 ),
+                            ('warm_p', self.loss_w_g.item()  if hasattr(self,"loss_w_g") else 0 ),
+                            ])
+
+    def get_current_visuals(self):
+        input = util.tensor2im(self.input_cubic_hr)
+        target = util.tensor2im(self.input_hr)
+        fake = util.tensor2im(self.output_hr.detach() )
+        return OrderedDict([('input', input),  ('fake', fake), ('target', target)])
+
+    def update_learning_rate(self):
+        for scheduler in self.schedulers:
+            scheduler.step()
+        lr = self.optimizers[0].param_groups[0]['lr']
     
 if __name__=="__main__":
     import torch.utils.data  as dt 

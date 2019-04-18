@@ -62,7 +62,7 @@ class TrainDatasetFromFolder(data.Dataset):
 
             scale_w = int(hr_img_w * ratio)
             scale_h = int(hr_img_h * ratio)
-            transform = Scale((scale_w, scale_h), interpolation=Image.BICUBIC)
+            transform = Resize((scale_w, scale_h), interpolation=Image.BICUBIC)
             img = transform(img)
 
         # random crop
@@ -89,21 +89,23 @@ class TrainDatasetFromFolder(data.Dataset):
             img = img.convert('YCbCr')
             # img, _, _ = img.split()
 
+        nm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         # hr_img HR image
-        hr_transform = Compose([Scale((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor()])
+        hr_transform = Compose([Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() , nm,])
         hr_img = hr_transform(img)
 
         # lr_img LR image
-        lr_transform = Compose([Scale((lr_img_w, lr_img_h), interpolation=Image.BICUBIC), ToTensor()])
+        lr_transform = Compose([Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC),  ToTensor() , nm, ])
         lr_img = lr_transform(img)
 
         # Bicubic interpolated image
-        bc_transform = Compose([ToPILImage(), Scale((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor()])
+        bc_transform = Compose([ToPILImage(), Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() ,nm])
         bc_img = bc_transform(lr_img)
 
         return lr_img, hr_img, bc_img
 
     def __len__(self):
+        #return 64
         return len(self.image_filenames)
 
 
@@ -137,15 +139,15 @@ class TestDatasetFromFolder(data.Dataset):
             # img, _, _ = lr_img.split()
 
         # hr_img HR image
-        hr_transform = Compose([Scale((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor()])
+        hr_transform = Compose([Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor()])
         hr_img = hr_transform(img)
 
         # lr_img LR image
-        lr_transform = Compose([Scale((lr_img_w, lr_img_h), interpolation=Image.BICUBIC), ToTensor()])
+        lr_transform = Compose([Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC), ToTensor()])
         lr_img = lr_transform(img)
 
         # Bicubic interpolated image
-        bc_transform = Compose([ToPILImage(), Scale((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor()])
+        bc_transform = Compose([ToPILImage(), Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor()])
         bc_img = bc_transform(lr_img)
 
         return lr_img, hr_img, bc_img

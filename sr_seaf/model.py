@@ -75,31 +75,26 @@ class  ResidualBlock(nn.Module):
         
 class G(nn.Module):
     def __init__(self,in_dim=3,res_channel=64,group=1,\
-        block_size=3):
+        block_size=16):
             
         super(G, self).__init__()
             
-        print ("dsad")
         self.first_in =nn.Sequential(*[
             nn.Conv2d(in_dim,res_channel,\
                 kernel_size=9,stride=1,padding=4,groups=group),
         ])
         
-        print ("dsad2")
         block_list =[ResidualBlock() for i in range(block_size)] 
         cn_1x1_list =[nn.Conv2d(res_channel,res_channel,kernel_size=1) for i in range(block_size)] 
         self.block_size =block_size
         
-        print ("dsad3")
         for i,block in enumerate(block_list,):
             self.add_module('denseblock%d' % (i + 1), block)
         
-        print ("dsad4")
         for i,cn11 in enumerate(cn_1x1_list,):
             self.add_module('denseblock_out%d' % (i + 1), cn11)
         
         
-        print ("dsad5")
         self.upsample= nn.Sequential(*[
             nn.Conv2d(res_channel,res_channel*4,3,1,1),
             nn.PixelShuffle(2),

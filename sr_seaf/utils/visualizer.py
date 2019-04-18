@@ -13,11 +13,12 @@ class Visualizer():
         self.use_html = not opt.no_html
         self.win_size = opt.display_winsize
         self.name = opt.name
+        self.main = opt.main if hasattr(opt,"main") else opt.name
         self.opt = opt
         self.saved = False
         if self.display_id > 0:
             import visdom
-            self.vis = visdom.Visdom(port=opt.display_port)
+            self.vis = visdom.Visdom(port=opt.display_port,env=self.main)
 
         if self.use_html:
             self.web_dir = os.path.join(opt.checkpoints, opt.name, 'web')
