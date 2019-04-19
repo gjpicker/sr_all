@@ -84,7 +84,7 @@ class G(nn.Module):
                 kernel_size=9,stride=1,padding=4,groups=group),
         ])
         
-        block_list =[ResidualBlock() for i in range(block_size)] 
+        block_list =[ResidualBlock(in_c_and_out_c=res_channel) for i in range(block_size)] 
         cn_1x1_list =[nn.Conv2d(res_channel,res_channel,kernel_size=1) for i in range(block_size)] 
         self.block_size =block_size
         
@@ -249,6 +249,14 @@ class vgg19_withoutbn_customefinetune(nn.Module):
         return out 
         
 if __name__=="__main__":
+    model = G(res_channel=128)
+    print (model) 
+    x= torch.randn(1,3,74,74)
+    x1= model(x)
+    print (x1.shape ,"<---",x.shape)
+#         
+    exit()
+
     x=torch.randn(1,3,296,296)
     cd = D(input_c=3,input_width=296)
     out_c = cd(x)
@@ -267,12 +275,6 @@ if __name__=="__main__":
     
     d_out = d(out )
     print (d_out.shape, "d_out ")
-#     model = G()
-#     print (model) 
-#     x= torch.randn(1,3,74,74)
-#     x1= model(x)
-#     print (x1.shape ,"<---",x.shape)
-#         
         
         
         

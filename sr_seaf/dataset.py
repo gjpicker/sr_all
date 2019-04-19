@@ -2,6 +2,7 @@ import torch.utils.data as data
 from torchvision.transforms import *
 from os import listdir
 from os.path import join
+import os 
 from PIL import Image
 import random
 
@@ -20,12 +21,14 @@ def calculate_valid_crop_size(crop_size, scale_factor):
 
 
 class TrainDatasetFromFolder(data.Dataset):
-    def __init__(self, image_dirs, is_gray=False, random_scale=True, crop_size=296, rotate=True, fliplr=True,
+    def __init__(self, image_index_path, is_gray=False, random_scale=True, crop_size=296, rotate=True, fliplr=True,
+#     def __init__(self, image_dirs, is_gray=False, random_scale=True, crop_size=296, rotate=True, fliplr=True,
                  fliptb=True, scale_factor=4):
         super(TrainDatasetFromFolder, self).__init__()
 
         self.image_filenames = []
-        with open(image_dirs+"a.log") as f :
+        assert os.path.isfile(image_index_path) ,"expect a exist path, but %s"%(image_index_path)
+        with open(image_index_path) as f :
             self.image_filenames =f.readlines()
             self. image_filenames = [x.strip() for x in self.image_filenames]
         #for image_dir in image_dirs:

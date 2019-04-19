@@ -51,7 +51,8 @@ if __name__=="__main__":
 
 
 
-    x_dir ="/home/wangjian7/download/fds_data/data/data/SR_data/"
+    x_dir_vid2k ="/home/wangjian7/download/fds_data/data/data/SR_data_index.log"
+    x_dir_imagenet ="/home/wangjian7/download/fds_data/data/data/ILSVRC2017_data_index.log"
 
     #=====START: ADDED FOR DISTRIBUTED======
     #if num_gpus > 1:
@@ -59,19 +60,23 @@ if __name__=="__main__":
     #=====END:   ADDED FOR DISTRIBUTED======
 
 
-    dt_c = dt. TrainDatasetFromFolder(image_dirs=x_dir)
+    dt_gan = dt. TrainDatasetFromFolder(image_dirs=x_dir_vid2k)
+    dt_pre = dt. TrainDatasetFromFolder(image_dirs=x_dir_imagenet)
     # =====START: ADDED FOR DISTRIBUTED======
     #train_sampler = DistributedSampler(dt_c) if num_gpus > 1 else None
     # =====END:   ADDED FOR DISTRIBUTED======
 
     class config :
         lr =0.0001
+        lr_warm = 1e-4
+        
         betas =( 0.9 ,0.99)
-        lambda_r= 0.001
+        lambda_r= 0.0001
         lambda_b=1/12.75
 
-        epoches =400
-        epoches_warm =40
+        epoches =5
+        epoches_warm =20
+        
         batch_size =64
         num_workers=8
 
@@ -94,6 +99,8 @@ if __name__=="__main__":
 #    dl_c =t_data.DataLoader(dt_c ,batch_size=1, **kw , sampler=train_sampler , drop_last=True)
 
     dist_info = [args.rank, num_gpus, args.group_name, dist_config]
-    tr_l = tr.Treainer(opt=config() ,train_dt = dt_c , dis_list =  dist_info)
+    tr_l = tr.Treainer(opt=config() ,\
+        train_dt_warm= dt_pre,
+        train_dt = dt_gan , dis_list =  dist_info)
     tr_l.run()
 

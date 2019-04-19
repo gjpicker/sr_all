@@ -99,7 +99,7 @@ class Visualizer():
             webpage.save()
 
     # errors: dictionary of error labels and values
-    def plot_current_errors(self, epoch, counter_ratio, opt, errors):
+    def plot_current_errors(self, epoch, counter_ratio, opt, errors,loss_name=None):
         if not hasattr(self, 'plot_data'):
             self.plot_data = {'X': [], 'Y': [], 'legend': list(errors.keys())}
         self.plot_data['X'].append(epoch + counter_ratio)
@@ -108,7 +108,7 @@ class Visualizer():
             X=np.stack([np.array(self.plot_data['X'])] * len(self.plot_data['legend']), 1),
             Y=np.array(self.plot_data['Y']),
             opts={
-                'title': self.name + ' loss over time',
+                'title':  self.name + ' loss over time' if loss_name is None else loss_name,
                 'legend': self.plot_data['legend'],
                 'xlabel': 'epoch',
                 'ylabel': 'loss'},

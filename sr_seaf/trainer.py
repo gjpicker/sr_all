@@ -16,7 +16,9 @@ from torch.optim import lr_scheduler
 import itertools
 
 import time 
+import math 
 
+from .networks import *
 #=====START: ADDED FOR DISTRIBUTED======
 from distributed import init_distributed, apply_gradient_allreduce, reduce_tensor
 from torch.utils.data.distributed import DistributedSampler
@@ -29,87 +31,9 @@ from utils.visualizer import Visualizer
 import utils.util as util
 
 
-def get_scheduler(optimizer, opt):
-    def lambda_rule(epoch):
-        lr_l = 1.0 - max(0, epoch + 2 - opt.niter) / float(opt.niter_decay + 1)
-        return lr_l
-    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
-    return scheduler
-
-##############################################################################
-# Classes
-##############################################################################
-class GANLoss(nn.Module):
-    """Define different GAN objectives.
-
-    The GANLoss class abstracts away the need to create the target label tensor
-    that has the same size as the input.
-    """
-
-    def __init__(self, gan_mode, target_real_label=1.0, target_fake_label=0.0):
-        """ Initialize the GANLoss class.
-
-        Parameters:
-            gan_mode (str) - - the type of GAN objective. It currently supports vanilla, lsgan, and wgangp.
-            target_real_label (bool) - - label for a real image
-            target_fake_label (bool) - - label of a fake image
-
-        Note: Do not use sigmoid as the last layer of Discriminator.
-        LSGAN needs no sigmoid. vanilla GANs will handle it with BCEWithLogitsLoss.
-        """
-        super(GANLoss, self).__init__()
-        self.register_buffer('real_label', torch.tensor(target_real_label))
-        self.register_buffer('fake_label', torch.tensor(target_fake_label))
-        self.gan_mode = gan_mode
-        if gan_mode == 'lsgan':
-            self.loss = nn.MSELoss()
-        elif gan_mode == 'vanilla':
-            self.loss = nn.BCEWithLogitsLoss()
-        elif gan_mode in ['wgangp']:
-            self.loss = None
-        else:
-            raise NotImplementedError('gan mode %s not implemented' % gan_mode)
-
-    def get_target_tensor(self, prediction, target_is_real):
-        """Create label tensors with the same size as the input.
-
-        Parameters:
-            prediction (tensor) - - tpyically the prediction from a discriminator
-            target_is_real (bool) - - if the ground truth label is for real images or fake images
-
-        Returns:
-            A label tensor filled with ground truth label, and with the size of the input
-        """
-
-        if target_is_real:
-            target_tensor = self.real_label
-        else:
-            target_tensor = self.fake_label
-        return target_tensor.expand_as(prediction)
-
-    def __call__(self, prediction, target_is_real):
-        """Calculate loss given Discriminator's output and grount truth labels.
-
-        Parameters:
-            prediction (tensor) - - tpyically the prediction output from a discriminator
-            target_is_real (bool) - - if the ground truth label is for real images or fake images
-
-        Returns:
-            the calculated loss.
-        """
-        if self.gan_mode in ['lsgan', 'vanilla']:
-            target_tensor = self.get_target_tensor(prediction, target_is_real)
-            loss = self.loss(prediction, target_tensor)
-        elif self.gan_mode == 'wgangp':
-            if target_is_real:
-                loss = -prediction.mean()
-            else:
-                loss = prediction.mean()
-        return loss
-
 
 class Treainer(object):
-    def __init__(self,opt=None,train_dt =None,valid_dt=None,dis_list=[]):
+    def __init__(self,opt=None,train_dt =None,train_dt_warm=None,dis_list=[]):
         self.device =torch.device("cuda")
 
         self.opt = opt 
@@ -172,28 +96,48 @@ class Treainer(object):
             itertools.chain(self.D_vgg.parameters(),self.D.parameters() ) ),\
             lr=opt.lr,
          )
+        
+        self.optim_G_warm= optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
+         lr=opt.lr_warm, betas=opt.betas, weight_decay=0.0)
+         
+          
         print ("create dataset ")
-        self.schedulers = []
         self.optimizers = []
         self.optimizers.append(self.optim_G)
         self.optimizers.append(self.optim_D)
-        for optimizer in self.optimizers:
-            self.schedulers.append(get_scheduler(optimizer, self.opt))
 
+        self.schedulers_warm = []
+        self.schedulers_warm.append(
+            torch.optim.lr_scheduler.ReduceLROnPlateau(\
+                self.optim_G_warm ,mode='min',factor=0.1 , min_lr=1e-6) )
+        
+        self.schedulers = []
+        for optim in optimizers :
+            N= self.epoches
+            self.schedulers.append(
+                torch.optim.lr_scheduler.StepLR(\
+                    optim , step_size=math.floor((N+N%3)//3), gamma=0.1 )  )
+                
+        
 
 
 
         
         # =====START: ADDED FOR DISTRIBUTED======
         train_sampler = DistributedSampler(train_dt) if num_gpus > 1 else None
+        train_sampler_warm = DistributedSampler(train_dt_warm) if num_gpus > 1 else None
         # =====END:   ADDED FOR DISTRIBUTED======
 
         kw ={"pin_memory":True , "num_workers":opt.num_workers } if torch.cuda.is_available() else {}
         dl_c =t_data.DataLoader(train_dt ,batch_size=opt.batch_size, **kw ,\
              sampler=train_sampler , drop_last=True)
+             
+        dl_c_warm =t_data.DataLoader(train_dt_warm ,batch_size=opt.batch_size, **kw ,\
+             sampler=train_sampler , drop_last=True)
 
 
         self.dt_train = dl_c
+        self.dt_train_warm = dl_c_warm
 #train_dt 
         #self.dt_valid = valid_dt
 
@@ -212,7 +156,7 @@ class Treainer(object):
             epoch_start_time = time.time()
             epoch_iter = 0
 
-            for input_lr ,input_hr , cubic_hr  in self.dt_train :
+            for input_lr ,input_hr , cubic_hr  in self.dt_train_warm :
                 iter_start_time = time.time()
 
                 self. input_lr = input_lr .to(self.device)
@@ -220,9 +164,9 @@ class Treainer(object):
                 self. input_cubic_hr = cubic_hr
 
                 self.forward()
-                self.optim_G .zero_grad ()
+                self.optim_G_warm .zero_grad ()
                 self.warm_loss()
-                self.optim_G.step()
+                self.optim_G_warm.step()
 
 
                 self.visualizer.reset()
@@ -230,7 +174,7 @@ class Treainer(object):
                 epoch_iter += opt.batch_size
 
                 if self.rank !=0 :
-                   continue
+                    continue
                 if total_steps % opt.display_freq == 0:
                     save_result = total_steps % opt.update_html_freq == 0
                     self.visualizer.display_current_results(self.get_current_visuals(), opt.epoches, save_result)
@@ -242,8 +186,10 @@ class Treainer(object):
                     if opt.display_id > 0:
                         self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
 
-
-
+            
+            lr_warm=self.update_learning_rate(is_warm=True)
+            self.visualizer.plot_current_errors(epoch,0,opt=None,\
+                errors=OrderedDict([('lr_warm',lr_warm)]) , loss_name="lr_warm" )
 
 
 
@@ -277,7 +223,7 @@ class Treainer(object):
                 epoch_iter += opt.batch_size
 
                 if self.rank !=0 :
-                   continue
+                    continue
                 if total_steps % opt.display_freq == 0:
                     save_result = total_steps % opt.update_html_freq == 0
                     self.visualizer.display_current_results(self.get_current_visuals(), opt.epoches, save_result)
@@ -289,6 +235,9 @@ class Treainer(object):
                     if opt.display_id > 0:
                         self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
 
+            lr_gan=self.update_learning_rate(is_warm=False)
+            self.visualizer.plot_current_errors(epoch,0,opt=None,\
+                errors=OrderedDict([('lr_gan',lr_gan)]) ,  loss_name="lr_gan"  )
 
                 
                 
@@ -313,11 +262,15 @@ class Treainer(object):
     
     def g_loss (self,):
         
+        #g feature f  
         x_f_fake= self.vgg(self.output_hr) 
-
-        x_f_real= self.vgg(self.input_hr) 
-
+        x_f_fake= self.opt.lambda_b * x_f_fake
         
+        
+        x_f_real= self.vgg(self.input_hr) 
+        x_f_real= self.opt.lambda_b * x_f_real
+        
+        #g .. f 
         d_fake = self.D(self.output_hr)
         fd_fake = self.D_vgg(x_f_fake)
 
@@ -342,6 +295,10 @@ class Treainer(object):
         with torch.no_grad():
             x_f_fake= self.vgg(self.output_hr.detach()) 
             x_f_real= self.vgg(self.input_hr) 
+            
+            x_f_fake= self.opt.lambda_b * x_f_fake
+            x_f_real= self.opt.lambda_b * x_f_real
+
             
         vgg_d_fake = self.D_vgg(x_f_fake)
         vgg_d_real = self.D_vgg(x_f_real)
@@ -381,10 +338,20 @@ class Treainer(object):
         fake = util.tensor2im(self.output_hr.detach() )
         return OrderedDict([('input', input),  ('fake', fake), ('target', target)])
 
-    def update_learning_rate(self):
-        for scheduler in self.schedulers:
-            scheduler.step()
-        lr = self.optimizers[0].param_groups[0]['lr']
+    def update_learning_rate(self,is_warm =True ):
+        if is_warm :
+            for scheduler in self.schedulers_warm:
+                scheduler.step()
+            
+            lr = self.optim_G_warm.param_groups[0]['lr']
+        else:
+            for scheduler in self.schedulers:
+                scheduler.step()
+
+            lr = self.optim_G.param_groups[0]['lr']
+            
+        
+        return lr 
     
 if __name__=="__main__":
     import torch.utils.data  as dt 
