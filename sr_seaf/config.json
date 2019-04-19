@@ -2,39 +2,30 @@
     "train_config": {
         "fp16_run": true,
         "output_directory": "checkpoints",
-        "epochs": 100000,
-        "learning_rate": 1e-4,
-        "sigma": 1.0,
-        "iters_per_checkpoint": 2000,
-        "batch_size": 12,
-        "seed": 1234,
-        "checkpoint_path": ""
-    },
-    "data_config": {
-        "training_files": "train_files.txt",
-        "segment_length": 16000,
-        "sampling_rate": 22050,
-        "filter_length": 1024,
-        "hop_length": 256,
-        "win_length": 1024,
-        "mel_fmin": 0.0,
-        "mel_fmax": 8000.0
+        "lr": 1e-4,
+        "lr_warm": 1e-4,
+        "betas": [0.9,0.99],
+        "lambda_r": 1e-4,
+        "lambda_b": 0.07843,
+        "epoches": 5,
+        "epoches_warm": 20,
+        "batch_size":16,
+        "num_workers":8,
+        "name": "w",
+        "checkpoints":"w",
+        "display_port":8097,
+        "display_id":1,
+        "display_winsize":297,
+        "display_freq":10,
+        "display_single_pane_ncols":0,
+        "update_html_freq":100,
+        "no_html":true,
+        "print_freq":10,
+        "main":"SR_002"
     },
     "dist_config": {
         "dist_backend": "nccl",
-        "dist_url": "tcp://localhost:54323"
-    },
-
-    "waveglow_config": {
-        "n_mel_channels": 80,
-        "n_flows": 12,
-        "n_group": 8,
-        "n_early_every": 4,
-        "n_early_size": 2,
-        "WN_config": {
-            "n_layers": 8,
-            "n_channels": 256,
-            "kernel_size": 3
-        }
+        "dist_url": "tcp://localhost:54321"
     }
+
 }

@@ -10,7 +10,8 @@ import model as model
 
 import torch 
 import torch.nn as nn 
-import torch.optim as optim
+#import torch.optim as optim
+import torch.optim
 from torch.optim import lr_scheduler
 
 import itertools
@@ -18,7 +19,7 @@ import itertools
 import time 
 import math 
 
-from .networks import *
+from networks import *
 #=====START: ADDED FOR DISTRIBUTED======
 from distributed import init_distributed, apply_gradient_allreduce, reduce_tensor
 from torch.utils.data.distributed import DistributedSampler
@@ -89,15 +90,15 @@ class Treainer(object):
 
 
 
-        self.optim_G= optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
+        self.optim_G= torch.optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
          lr=opt.lr, betas=opt.betas, weight_decay=0.0)
          
-        self.optim_D=optim.SGD( filter(lambda p: p.requires_grad, \
+        self.optim_D= torch.optim.SGD( filter(lambda p: p.requires_grad, \
             itertools.chain(self.D_vgg.parameters(),self.D.parameters() ) ),\
             lr=opt.lr,
          )
         
-        self.optim_G_warm= optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
+        self.optim_G_warm= torch. optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
          lr=opt.lr_warm, betas=opt.betas, weight_decay=0.0)
          
           
@@ -112,8 +113,8 @@ class Treainer(object):
                 self.optim_G_warm ,mode='min',factor=0.1 , min_lr=1e-6) )
         
         self.schedulers = []
-        for optim in optimizers :
-            N= self.epoches
+        for optim in self.optimizers :
+            N= self.opt.epoches
             self.schedulers.append(
                 torch.optim.lr_scheduler.StepLR(\
                     optim , step_size=math.floor((N+N%3)//3), gamma=0.1 )  )
@@ -188,8 +189,8 @@ class Treainer(object):
 
             
             lr_warm=self.update_learning_rate(is_warm=True)
-            self.visualizer.plot_current_errors(epoch,0,opt=None,\
-                errors=OrderedDict([('lr_warm',lr_warm)]) , loss_name="lr_warm" )
+            self.visualizer.plot_current_lrs(epoch,0,opt=None,\
+                errors=OrderedDict([('lr_warm',lr_warm),("lr_gan",0)]) , loss_name="lr_warm" ,display_id_offset=1 )
 
 
 
@@ -236,8 +237,8 @@ class Treainer(object):
                         self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
 
             lr_gan=self.update_learning_rate(is_warm=False)
-            self.visualizer.plot_current_errors(epoch,0,opt=None,\
-                errors=OrderedDict([('lr_gan',lr_gan)]) ,  loss_name="lr_gan"  )
+            self.visualizer.plot_current_lrs(epoch,0,opt=None,\
+                errors=OrderedDict([('lr_gan',lr_gan),("lr_warm",0)]) ,  loss_name="lr_warm"  ,display_id_offset=1)
 
                 
                 
@@ -341,7 +342,7 @@ class Treainer(object):
     def update_learning_rate(self,is_warm =True ):
         if is_warm :
             for scheduler in self.schedulers_warm:
-                scheduler.step()
+                scheduler.step(self.loss_w_g)
             
             lr = self.optim_G_warm.param_groups[0]['lr']
         else:
