@@ -7,7 +7,7 @@
         "betas": [0.9,0.99],
         "lambda_r": 1e-4,
         "lambda_b": 0.07843,
-        "epoches": 5,
+        "epoches": 20,
         "epoches_warm": 20,
         "batch_size":16,
         "num_workers":8,
@@ -21,7 +21,7 @@
         "update_html_freq":100,
         "no_html":true,
         "print_freq":10,
-        "main":"SR_002"
+        "main":"SR_003"
     },
     "dist_config": {
         "dist_backend": "nccl",

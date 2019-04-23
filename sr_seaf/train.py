@@ -53,9 +53,8 @@ if __name__=="__main__":
 
 
     x_dir_vid2k ="/home/wangjian7/download/fds_data/data/data/SR_data_index.log"
-    x_dir_imagenet ="/home/wangjian7/download/fds_data/data/data/ILSVRC2017_data_index.log"
+    x_dir_imagenet = "/home/wangjian7/download/fds_data/data/data/Imagenet_400x400_data_index.log"#"/home/wangjian7/download/fds_data/data/data/ILSVRC2017_data_index.log"
 
-    x_dir_imagenet =x_dir_vid2k 
 
     #=====START: ADDED FOR DISTRIBUTED======
     #if num_gpus > 1:
