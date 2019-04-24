@@ -3,9 +3,11 @@ Created on Apr 18, 2019
 
 @author: gjpicker
 '''
+# -*- coding: utf-8 -*- 
 from __future__ import absolute_import 
 from collections import OrderedDict
 # from . import model as model  
+
 import model as model  
 
 import torch 
@@ -35,7 +37,7 @@ import utils.util as util
 
 class Treainer(object):
     def __init__(self,opt=None,train_dt =None,train_dt_warm=None,dis_list=[]):
-        self.device =torch.device("cuda")
+        self.device =torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.opt = opt 
 
@@ -64,15 +66,22 @@ class Treainer(object):
         self.D = model.D()
         
         
-        self.vgg = model. vgg19_withoutbn_customefinetune()
-        for p in self.vgg.parameters():
-            p.requires_grad = True
+        if opt.vgg_type =="style":
+            self.vgg = load_vgg16(opt['vgg_model_path'] + '/models')
+        elif opt.vgg_type =="classify" :
+            self.vgg = model. vgg19_withoutbn_customefinetune()
+            
+        self.vgg.eval()
+        for param in self.vgg.parameters():
+            param.requires_grad = False
 
-        print (self.G,self.D)
+#         for p in self.vgg.parameters():
+#             p.requires_grad = False
 
-        model.init_weights(self.D)
-        model.init_weights(self.D_vgg)
-        model.init_weights(self.G)
+
+        init_weights(self.D,init_type=opt.init)
+        init_weights(self.D_vgg,init_type=opt.init)
+        init_weights(self.G,init_type=opt.init)
         
         self.vgg= self.vgg.to(self.device)
         self.D= self.D.to(self.device)
@@ -88,76 +97,93 @@ class Treainer(object):
             
         #=====END:   ADDED FOR DISTRIBUTED======
 
+        print (opt)
 
+        self.optim_G_warm= torch. optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
+         lr=opt.warm_opt.lr, betas=opt.warm_opt.betas, weight_decay=0.0)
+         
 
         self.optim_G= torch.optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
-         lr=opt.lr, betas=opt.betas, weight_decay=0.0)
+         lr=opt.gen.lr, betas=opt.gen.betas, weight_decay=0.0)
          
-        self.optim_D= torch.optim.SGD( filter(lambda p: p.requires_grad, \
-            itertools.chain(self.D_vgg.parameters(),self.D.parameters() ) ),\
-            lr=opt.lr,
-         )
+         
+        if opt.dis.optim =="sgd":
+            self.optim_D= torch.optim.SGD( filter(lambda p: p.requires_grad, \
+                itertools.chain(self.D_vgg.parameters(),self.D.parameters() ) ),\
+                lr=opt.dis.lr,
+             )
+        elif opt.dis.optim =="adam":
+            self.optim_D= torch.optim.Adam( filter(lambda p: p.requires_grad, \
+                itertools.chain(self.D_vgg.parameters(),self.D.parameters() ) ),\
+                lr=opt.dis.lr,betas=opt.dis.betas, weight_decay=0.0
+             )
+        else:
+            raise Exception("unknown")
+             
         
-        self.optim_G_warm= torch. optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
-         lr=opt.lr_warm, betas=opt.betas, weight_decay=0.0)
-         
           
-        print ("create dataset ")
-        self.optimizers = []
-        self.optimizers.append(self.optim_G)
-        self.optimizers.append(self.optim_D)
-
-        self.schedulers_warm = []
-        self.schedulers_warm.append(
-            torch.optim.lr_scheduler.ReduceLROnPlateau(\
-                self.optim_G_warm ,mode='min',factor=0.1 , min_lr=1e-6) )
+        print ("create schedule ")
+        
+        lr_sc_warm = get_scheduler(self.optim_G_warm,opt.warm_opt )
+        lr_sc_G = get_scheduler(self.optim_G,opt.gen )
+        lr_sc_D = get_scheduler(self.optim_D,opt.dis )
+        
         
         self.schedulers = []
-        for optim in self.optimizers :
-            N= self.opt.epoches
-            self.schedulers.append(
-                torch.optim.lr_scheduler.StepLR(\
-                    optim , step_size=math.floor((N+N%3)//3), gamma=0.1 )  )
-                
+        self.schedulers_warm = []
         
-
-
-
+        self.schedulers_warm.append(lr_sc_warm)
+        self.schedulers.append(lr_sc_G)
+        self.schedulers.append(lr_sc_D)
+        
         
         # =====START: ADDED FOR DISTRIBUTED======
         train_sampler = DistributedSampler(train_dt) if num_gpus > 1 else None
         train_sampler_warm = DistributedSampler(train_dt_warm) if num_gpus > 1 else None
         # =====END:   ADDED FOR DISTRIBUTED======
 
-        kw ={"pin_memory":True , "num_workers":opt.num_workers } if torch.cuda.is_available() else {}
-        dl_c =t_data.DataLoader(train_dt ,batch_size=opt.batch_size, **kw ,\
-             sampler=train_sampler , drop_last=True)
+        kw ={"pin_memory":True , "num_workers":8 } if torch.cuda.is_available() else {}
+        dl_c =t_data.DataLoader(train_dt ,batch_size=opt.batch_size,\
+             sampler=train_sampler , drop_last=True, **kw )
              
-        dl_c_warm =t_data.DataLoader(train_dt_warm ,batch_size=opt.batch_size, **kw ,\
-             sampler=train_sampler , drop_last=True)
+        dl_c_warm =t_data.DataLoader(train_dt_warm ,batch_size=opt.batch_size,  
+             sampler=train_sampler_warm , drop_last=True  ,**kw)
 
 
         self.dt_train = dl_c
         self.dt_train_warm = dl_c_warm
-#train_dt 
-        #self.dt_valid = valid_dt
 
 
-        self.critic_pixel = torch.nn.MSELoss().to(self.device)
-        self.gan_loss = GANLoss(gan_mode="lsgan").to(self.device)
+        if opt.warm_opt.loss_fn=="mse":
+            self.critic_pixel = torch.nn.MSELoss()
+        elif opt.warm_opt.loss_fn=="l1":
+            self.critic_pixel = torch.nn.MSELoss()
+        elif opt.warm_opt.loss_fn=="smooth_l1":
+            self.critic_pixel = torch.nn.MSELoss()
+        else:
+            raise Exception("unknown")
+
+        self.critic_pixel=self.critic_pixel.to(self.device)
+        
+        self.gan_loss = GANLoss(gan_mode=opt.gan_loss_fn).to(self.device)
         print ("init ....")
     
     def run(self):
         
         total_steps=0 
         opt= self.opt 
-        dataset_size= len(self.dt_train) * opt.batch_size 
+        dataset_size= len(self.dt_train_warm) * opt.batch_size 
 
         for epoch in range(self.opt.epoches_warm):
-            epoch_start_time = time.time()
+#             epoch_start_time = time.time()
             epoch_iter = 0
 
-            for input_lr ,input_hr , cubic_hr  in self.dt_train_warm :
+            for data   in self.dt_train_warm :
+                if len(data)>3:
+                    input_lr ,input_hr , cubic_hr,_,_ =data 
+                else :
+                    input_lr ,input_hr , cubic_hr =data 
+                
                 iter_start_time = time.time()
 
                 self. input_lr = input_lr .to(self.device)
@@ -178,7 +204,7 @@ class Treainer(object):
                     continue
                 if total_steps % opt.display_freq == 0:
                     save_result = total_steps % opt.update_html_freq == 0
-                    self.visualizer.display_current_results(self.get_current_visuals(), opt.epoches, save_result)
+                    self.visualizer.display_current_results(self.get_current_visuals(), opt.epoches_warm, save_result)
 
                 if total_steps % opt.print_freq == 0:
                     errors = self.get_current_errors()
@@ -188,21 +214,26 @@ class Treainer(object):
                         self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
 
             
-            lr_warm=self.update_learning_rate(is_warm=True)
+            lr_warm,_=self.update_learning_rate(is_warm=True)
             self.visualizer.plot_current_lrs(epoch,0,opt=None,\
-                errors=OrderedDict([('lr_warm',lr_warm),("lr_gan",0)]) , loss_name="lr_warm" ,display_id_offset=1 )
+                errors=OrderedDict([('lr_warm_g',lr_warm),("lr_g",0),("lr_d",0)]) , loss_name="lr_warm" ,display_id_offset=1 )
 
 
 
 
         self.loss_w_g=torch.tensor(0)
-
+        dataset_size= len(self.dt_train) * opt.batch_size 
 
         for epoch in range(self.opt.epoches_warm , self.opt.epoches_warm +self.opt.epoches):
-            epoch_start_time = time.time()
+#             epoch_start_time = time.time()
             epoch_iter = 0
 
-            for input_lr ,input_hr , cubic_hr  in self.dt_train :
+            for data in self.dt_train :
+                if len(data)>3:
+                    input_lr ,input_hr , cubic_hr,_,_ =data 
+                else :
+                    input_lr ,input_hr , cubic_hr =data 
+                
                 iter_start_time = time.time()
 
                 self. input_lr = input_lr .to(self.device)
@@ -227,7 +258,7 @@ class Treainer(object):
                     continue
                 if total_steps % opt.display_freq == 0:
                     save_result = total_steps % opt.update_html_freq == 0
-                    self.visualizer.display_current_results(self.get_current_visuals(), opt.epoches, save_result)
+                    self.visualizer.display_current_results(self.get_current_visuals(), epoch, save_result)
 
                 if total_steps % opt.print_freq == 0:
                     errors = self.get_current_errors()
@@ -236,9 +267,9 @@ class Treainer(object):
                     if opt.display_id > 0:
                         self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
 
-            lr_gan=self.update_learning_rate(is_warm=False)
+            lr_g,lr_d=self.update_learning_rate(is_warm=False)
             self.visualizer.plot_current_lrs(epoch,0,opt=None,\
-                errors=OrderedDict([('lr_gan',lr_gan),("lr_warm",0)]) ,  loss_name="lr_warm"  ,display_id_offset=1)
+                errors=OrderedDict([ ('lr_warm_g',0),("lr_g",lr_g),("lr_d",lr_d) ]) ,  loss_name="lr_warm"  ,display_id_offset=1)
 
                 
                 
@@ -262,45 +293,34 @@ class Treainer(object):
         
     
     def g_loss (self,):
-        
+        vgg_r = self.opt.gen ["lambda_vgg_r"]
         #g feature f  
-        x_f_fake= self.vgg(self.output_hr) 
-        x_f_fake= self.opt.lambda_b * x_f_fake
-        
-        
-        x_f_real= self.vgg(self.input_hr) 
-        x_f_real= self.opt.lambda_b * x_f_real
+        x_f_fake= self.vgg(vgg_r * self.output_hr) 
         
         #g .. f 
         d_fake = self.D(self.output_hr)
-        fd_fake = self.D_vgg(x_f_fake)
-
         self.loss_G_g = self.gan_loss (d_fake,True )
+
+        fd_fake = self.D_vgg(x_f_fake)
         self.loss_G_fg = self.gan_loss (fd_fake,True )
 
-        ## pixel 
-        #self.loss_G_p = self.critic_pixel (self.output_hr , self.input_hr )
+        ## perception 
+        x_f_real= self.vgg(vgg_r * self.input_hr) 
         self.loss_G_p = self.critic_pixel (x_f_fake,x_f_real )
 
-        self.loss_g = self.opt.lambda_r *( self.loss_G_g + self.loss_G_fg) + self.loss_G_p
+        self.loss_g = self.opt.gen["lambda_vgg_loss"] *( self.loss_G_g + self.loss_G_fg) + self.loss_G_p
 
         self.loss_g.backward()
         
-        #print ("loss_g",self.loss_g.item() )
-        pass 
         
     def d_loss (self,):
         d_fake = self.D(self.output_hr.detach())
         d_real = self.D(self.input_hr)
         
-        with torch.no_grad():
-            x_f_fake= self.vgg(self.output_hr.detach()) 
-            x_f_real= self.vgg(self.input_hr) 
-            
-            x_f_fake= self.opt.lambda_b * x_f_fake
-            x_f_real= self.opt.lambda_b * x_f_real
-
-            
+        vgg_r = self.opt.gen .lambda_vgg_r
+        x_f_fake= self.vgg(vgg_r* self.output_hr.detach()) 
+        x_f_real= self.vgg(vgg_r* self.input_hr) 
+        
         vgg_d_fake = self.D_vgg(x_f_fake)
         vgg_d_real = self.D_vgg(x_f_real)
         
@@ -313,7 +333,16 @@ class Treainer(object):
         
         #self.loss_d_f_fake = 0
         #self.loss_d_f_real = 0
-        
+        if self.opt.loss_fn =="wgangp":
+            # train with gradient penalty
+            gradient_penalty_vgg = calc_gradient_penalty(netD=self.D_vgg, real_data=x_f_real.data,\
+                fake_data=x_f_fake.data)
+            gradient_penalty_vgg.backward()
+            
+            gradient_penalty = calc_gradient_penalty(netD=self.D, real_data=self.input_hr.data, \
+                fake_data = self.output_hr.data)
+            gradient_penalty.backward()
+
         
             
         loss_d =self.loss_D_f+ self.loss_D_r +self.loss_Df_f+\
@@ -345,14 +374,15 @@ class Treainer(object):
                 scheduler.step(self.loss_w_g)
             
             lr = self.optim_G_warm.param_groups[0]['lr']
+            return (lr,0)
         else:
             for scheduler in self.schedulers:
                 scheduler.step()
 
-            lr = self.optim_G.param_groups[0]['lr']
-            
+            lr_g = self.optim_G.param_groups[0]['lr']
+            lr_d = self.optim_G.param_groups[0]['lr']
+            return (lr_g,lr_d)
         
-        return lr 
     
 if __name__=="__main__":
     import torch.utils.data  as dt 

@@ -1,0 +1,65 @@
+
+ge_net : carn # srfeat ,carn 
+is_debug : true ## dataset size ==64 
+train_config:
+#  name: "123"
+#  checkpoints : "save"
+  batch_size: 4                 # batch size
+  init: kaiming                 # initialization [gaussian/kaiming/xavier/orthogonal]
+  imagenet_data_root : config/imgnet_index.log
+  vid2k_data_root: config/vid2k_index.log
+
+  vgg_type : classify # style , classify 
+
+
+  ## inherent from russia
+  display_freq : 10
+  print_freq : 10
+  display_port : 8097
+  display_id : 1
+  display_winsize : 297
+  display_single_pane_ncols : 0 
+  update_html_freq : 100 
+  no_html: true
+    
+    
+  warm_opt:
+    loss_fn: mse #mse l1 smooth_l1 
+    epoch : 20
+    lr : 0.00001
+    lr_policy : plateau
+    optim : adam
+    betas: [0.5,0.99]
+    
+  
+  gen:
+    optim: adam #adam ,sgd
+    lr : 0.0001
+    betas: [0.5,0.99]
+
+    lr_policy : step
+    lr_decay_iters : 2
+    lambda_vgg_input : 0.0001 ## vgg(r*image) --> r :float
+    lambda_vgg_loss : 0.0001 ## loss= r* vgg_loss + 1*gan_loss -->r:float
+  dis :
+    optim: adam #adam ,sgd
+    lr : 0.00001  
+    betas: [0.5,0.99]
+    lr_policy : step 
+    lr_decay_iters : 2 
+
+  #main_train:
+  epoches : 10
+  epoches_warm : 10
+  gan_loss_fn : wgangp #lsgan wgangp  vanilla
+#  lambda_gan_weight : 10  # $L_{g}=L_{p}+\lambda\left(L_{a}^{i}+L_{a}^{f}\right)$
+  
+  
+# logger options
+
+dist_config:
+   dist_backend: nccl
+   dist_url: tcp://localhost:54321
+  
+  
+  

@@ -5,6 +5,9 @@ from os.path import join
 import os 
 from PIL import Image
 import random
+import numpy as np 
+
+import torch 
 
 
 def is_image_file(filename):
@@ -23,9 +26,11 @@ def calculate_valid_crop_size(crop_size, scale_factor):
 class TrainDatasetFromFolder(data.Dataset):
     def __init__(self, image_index_path, is_gray=False, random_scale=True, crop_size=296, rotate=True, fliplr=True,
 #     def __init__(self, image_dirs, is_gray=False, random_scale=True, crop_size=296, rotate=True, fliplr=True,
-                 fliptb=True, scale_factor=4):
+                 fliptb=True, scale_factor=4,is_debug_size=0):
+                     
         super(TrainDatasetFromFolder, self).__init__()
 
+        self.is_debug_size =is_debug_size;
         self.image_filenames = []
         assert os.path.isfile(image_index_path) ,"expect a exist path, but %s"%(image_index_path)
         with open(image_index_path) as f :
@@ -43,7 +48,10 @@ class TrainDatasetFromFolder(data.Dataset):
 
     def __getitem__(self, index):
         # load image
-        img = load_img(self.image_filenames[index])
+        ## random choice 
+#         img = load_img(self.image_filenames[index])
+        img_id = np.random.choice(self.image_filenames)
+        img = load_img(img_id)
 
         # determine valid HR image size with scale factor
         self.crop_size = calculate_valid_crop_size(self.crop_size, self.scale_factor)
@@ -94,20 +102,36 @@ class TrainDatasetFromFolder(data.Dataset):
 
         nm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         # hr_img HR image
-        hr_transform = Compose([Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() , nm,])
-        hr_img = hr_transform(img)
+#         hr_transform_common = Compose([Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() , nm,])
+        hr_transform_common = [Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() ]
+        hr_transform_vgg = Compose(hr_transform_common)
+        hr_transform_norm = Compose(hr_transform_common+[nm])
+        hr_img = hr_transform_norm(img)
+        hr_img_vgg = hr_transform_vgg(img)
 
         # lr_img LR image
-        lr_transform = Compose([Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC),  ToTensor() , nm, ])
-        lr_img = lr_transform(img)
+#         lr_transform = Compose([Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC),  ToTensor() , nm, ])
+#         lr_img = lr_transform(img)
+
+        lr_transform_common = [Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC), ToTensor() ]
+        lr_transform_vgg = Compose(lr_transform_common)
+        lr_transform_norm = Compose(lr_transform_common+[nm])
+        lr_img = lr_transform_norm(img)
+        lr_img_vgg = lr_transform_vgg(img)
+
 
         # Bicubic interpolated image
-        bc_transform = Compose([ToPILImage(), Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() ,nm])
-        bc_img = bc_transform(lr_img)
+        bc_transform = Compose([Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC), \
+            Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() ,nm])
+        bc_img = bc_transform(img)
 
-        return lr_img, hr_img, bc_img
+
+
+        return lr_img, hr_img, bc_img , lr_img_vgg, hr_img_vgg
 
     def __len__(self):
+        if self.is_debug_size>0:
+            return self.is_debug_size
         #return 64
         return len(self.image_filenames)
 
@@ -150,7 +174,8 @@ class TestDatasetFromFolder(data.Dataset):
         lr_img = lr_transform(img)
 
         # Bicubic interpolated image
-        bc_transform = Compose([ToPILImage(), Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor()])
+        bc_transform = Compose([Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC),\
+            Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor()])
         bc_img = bc_transform(lr_img)
 
         return lr_img, hr_img, bc_img
