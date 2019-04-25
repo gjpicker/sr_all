@@ -9,6 +9,7 @@ import os
 import collections
 
 
+import pathlib
 # Converts a Tensor into a Numpy array
 # |imtype|: the desired type of the converted numpy array
 def tensor2im(image_tensor, imtype=np.uint8):
@@ -64,5 +65,7 @@ def mkdirs(paths):
 
 
 def mkdir(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
+	pathlib.Path(path).mkdir(parents=True, exist_ok=True)
+
+#    if not os.path.exists(path):
+#        os.makedirs(path)

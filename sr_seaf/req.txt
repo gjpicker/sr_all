@@ -2,3 +2,4 @@ torchvision
 tqdm
 dominate
 scipy
+pathlib
