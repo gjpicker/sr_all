@@ -58,8 +58,15 @@ class Treainer(object):
         #=====END:   ADDED FOR DISTRIBUTED======
 
 
-        
-        self.G= model.G() 
+        if opt.ge_net =="srfeat":
+            self.G= model.G() 
+        elif opt.ge_net =="carn":
+            self.G= model.G1()
+        elif opt.ge_net =="carnm":
+            self.G= model.G2()
+        else :
+            raise Exception("unknow ")
+                
         
         self.D_vgg= model. D(input_c=512,input_width=18) 
         

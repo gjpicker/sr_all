@@ -7,6 +7,9 @@ import torch
 import torch.nn  as nn
 import torchvision
 
+from carn import carn as carn_1
+from carn import carn_m as carn_2
+
 # from torch.nn import init
 # 
 # 
@@ -71,7 +74,21 @@ class  ResidualBlock(nn.Module):
         assert x_new.shape ==x.shape ,"error design"
         return x_new+x 
          
-        
+class G1(carn_1.Net):
+    def __init__(self,in_dim=3,res_channel=64,group=1,\
+        block_size=16):
+            
+        super(G1, self).__init__(scale=0,multi_scale=True,group=1)
+         
+class G2(carn_2.Net):
+    def __init__(self,in_dim=3,res_channel=64,group=1,\
+        block_size=16):
+            
+        super(G2, self).__init__(scale=0,multi_scale=True,group=4)
+    
+    
+    
+   
         
 class G(nn.Module):
     def __init__(self,in_dim=3,res_channel=64,group=1,\
@@ -249,6 +266,12 @@ class vgg19_withoutbn_customefinetune(nn.Module):
         return out 
         
 if __name__=="__main__":
+    model = G1()
+    model = G2()
+    x= torch.randn(1,3,74,74)
+    y= model(x)
+    print (x.shape, y.shape)
+#     exit()
     model = G(res_channel=128)
     print (model) 
     x= torch.randn(1,3,74,74)
