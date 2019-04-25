@@ -176,12 +176,24 @@ class Treainer(object):
         self.gan_loss = GANLoss(gan_mode=opt.gan_loss_fn).to(self.device)
         print ("init ....")
     
-    def run(self):
         
+    def run(self):
+
+        self.run_tmp(with_dry=True)
+        print ("====="*8)
+        print ("====="*8)
+        print ("finish dry ")
+        print ("====="*8)
+        print ("====="*8)
+        self.run_tmp(with_dry=False)
+
+
+    def run_tmp(self,with_dry=False):
         total_steps=0 
         opt= self.opt 
         dataset_size= len(self.dt_train_warm) * opt.batch_size 
 
+        self.reset_optim(is_warm=True)
         for epoch in range(self.opt.epoches_warm):
 #             epoch_start_time = time.time()
             epoch_iter = 0
@@ -209,8 +221,6 @@ class Treainer(object):
                 total_steps += opt.batch_size
                 epoch_iter += opt.batch_size
 
-                if self.rank !=0 :
-                    continue
                 if total_steps % opt.display_freq == 0:
                     save_result = total_steps % opt.update_html_freq == 0
                     self.visualizer.display_current_results(self.get_current_visuals(), opt.epoches_warm, save_result)
@@ -222,13 +232,27 @@ class Treainer(object):
                     if opt.display_id > 0:
                         self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
 
+                if with_dry:
+                    break
             
+                if self.rank !=0 :
+                    continue
+
+            if with_dry:
+                break
             lr_warm,_=self.update_learning_rate(is_warm=True)
             self.visualizer.plot_current_lrs(epoch,0,opt=None,\
                 errors=OrderedDict([('lr_warm_g',lr_warm),("lr_g",0),("lr_d",0)]) , loss_name="lr_warm" ,display_id_offset=1 )
 
 
+        print ("****"*8)
+        print ("****"*8)
+        print ("start gan ")
+        print ("****"*8)
+        print ("****"*8)
 
+
+        self.reset_optim(is_warm=False)
 
         self.loss_w_g=torch.tensor(0)
         dataset_size= len(self.dt_train) * opt.batch_size 
@@ -263,8 +287,6 @@ class Treainer(object):
                 total_steps += opt.batch_size
                 epoch_iter += opt.batch_size
 
-                if self.rank !=0 :
-                    continue
                 if total_steps % opt.display_freq == 0:
                     save_result = total_steps % opt.update_html_freq == 0
                     self.visualizer.display_current_results(self.get_current_visuals(), epoch, save_result)
@@ -276,6 +298,13 @@ class Treainer(object):
                     if opt.display_id > 0:
                         self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
 
+                if with_dry:
+                    break
+
+                if self.rank !=0 :
+                    continue
+            if with_dry:
+                break
             lr_g,lr_d=self.update_learning_rate(is_warm=False)
             self.visualizer.plot_current_lrs(epoch,0,opt=None,\
                 errors=OrderedDict([ ('lr_warm_g',0),("lr_g",lr_g),("lr_d",lr_d) ]) ,  loss_name="lr_warm"  ,display_id_offset=1)
@@ -380,6 +409,20 @@ class Treainer(object):
         fake = util.tensor2im(self.output_hr.detach() )
         return OrderedDict([('input', input),  ('fake', fake), ('target', target)])
 
+    def reset_optim(self ,is_warm=True):
+        self.optim_G_warm.zero_grad()
+        self.G.zero_grad()
+
+        self.optim_G.zero_grad()
+        self.optim_D.zero_grad()
+        self.D.zero_grad()
+        self.D_vgg.zero_grad()
+        if not is_warm :
+            self.D.train()
+            self.D_vgg.train()
+        else:
+            self.D.eval()
+            self.D_vgg.eval()
     def update_learning_rate(self,is_warm =True ):
         if is_warm :
             for scheduler in self.schedulers_warm:
