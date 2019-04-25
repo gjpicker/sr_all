@@ -1,15 +1,20 @@
 
-ge_net : carn # srfeat ,carn 
-is_debug : true ## dataset size ==64 
+ge_net : srfeat # srfeat ,carn 
+#is_debug : True ## dataset size ==64 
+is_debug : false ## dataset size ==64 
 train_config:
 #  name: "123"
 #  checkpoints : "save"
-  batch_size: 4                 # batch size
-  init: kaiming                 # initialization [gaussian/kaiming/xavier/orthogonal]
-  imagenet_data_root : config/imgnet_index.log
-  vid2k_data_root: config/vid2k_index.log
+  batch_size: 16                 # batch size
+  batch_size_warm: 256                 # batch size
+  init: kaiming                 # initialization  [normal | xavier | kaiming | orthogonal] 
+  imagenet_data_root : /home/wangjian7/download/fds_data/data/data/Imagenet_400x400_data_index.log
+  vid2k_data_root: /home/wangjian7/download/fds_data/data/data/SR_data_index.log
 
+  #vgg_type : classify # style , classify 
+  vgg_type : style # style , classify 
   vgg_type : classify # style , classify 
+  vgg_model_path : /home/wangjian7/workspace/src/xgan/xgan_v5_param/vgg_model/  
 
 
   ## inherent from russia
@@ -20,37 +25,38 @@ train_config:
   display_winsize : 297
   display_single_pane_ncols : 0 
   update_html_freq : 100 
-  no_html: true
+  #no_html: true
+  no_html: false
     
     
   warm_opt:
     loss_fn: mse #mse l1 smooth_l1 
-    epoch : 20
-    lr : 0.00001
+#    epoch : 20
+    lr : 0.001
     lr_policy : plateau
     optim : adam
-    betas: [0.5,0.99]
+    betas: [0.9,0.99]
     
   
   gen:
     optim: adam #adam ,sgd
-    lr : 0.0001
-    betas: [0.5,0.99]
+    lr : 0.001
+    betas: [0.9,0.99]
 
     lr_policy : step
     lr_decay_iters : 2
-    lambda_vgg_input : 0.0001 ## vgg(r*image) --> r :float
-    lambda_vgg_loss : 0.0001 ## loss= r* vgg_loss + 1*gan_loss -->r:float
+    lambda_vgg_input : 0.0785 ## vgg(r*image) --> r :float
+    lambda_vgg_loss : 0.01 ## loss= r* vgg_loss + 1*gan_loss -->r:float
   dis :
     optim: adam #adam ,sgd
-    lr : 0.00001  
-    betas: [0.5,0.99]
+    lr : 0.001  
+    betas: [0.9,0.99]
     lr_policy : step 
     lr_decay_iters : 2 
 
   #main_train:
   epoches : 10
-  epoches_warm : 10
+  epoches_warm : 20
   gan_loss_fn : wgangp #lsgan wgangp  vanilla
 #  lambda_gan_weight : 10  # $L_{g}=L_{p}+\lambda\left(L_{a}^{i}+L_{a}^{f}\right)$
   
@@ -59,7 +65,7 @@ train_config:
 
 dist_config:
    dist_backend: nccl
-   dist_url: tcp://localhost:54321
+   dist_url: tcp://localhost:54322
   
   
   

@@ -2,7 +2,7 @@
 #is_debug : True ## dataset size ==64 
 is_debug : false ## dataset size ==64 
 train_config:
-  ge_net : srfeat # srfeat ,carn carnm 
+  ge_net : srfeat # srfeat ,carn  ,carnm
 #  name: "123"
 #  checkpoints : "save"
   batch_size: 16                 # batch size
@@ -65,7 +65,7 @@ train_config:
 
 dist_config:
    dist_backend: nccl
-   dist_url: tcp://tj-hadoop-dl90.kscn:54322
+   dist_url: tcp://localhost:54322
   
   
   

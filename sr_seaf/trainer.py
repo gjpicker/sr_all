@@ -20,6 +20,7 @@ import itertools
 
 import time 
 import math 
+import tqdm
 
 from networks import *
 #=====START: ADDED FOR DISTRIBUTED======
@@ -74,7 +75,7 @@ class Treainer(object):
         
         
         if opt.vgg_type =="style":
-            self.vgg = load_vgg16(opt['vgg_model_path'] + '/models')
+            self.vgg = load_vgg16(opt.vgg_model_path + '/models')
         elif opt.vgg_type =="classify" :
             self.vgg = model. vgg19_withoutbn_customefinetune()
             
@@ -109,9 +110,9 @@ class Treainer(object):
         self.optim_G_warm= torch. optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
          lr=opt.warm_opt.lr, betas=opt.warm_opt.betas, weight_decay=0.0)
          
-
-        self.optim_G= torch.optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
-         lr=opt.gen.lr, betas=opt.gen.betas, weight_decay=0.0)
+        self.optim_G = self.optim_G_warm
+#        self.optim_G= torch.optim.Adam(filter(lambda p: p.requires_grad, self.G.parameters()),\
+#         lr=opt.gen.lr, betas=opt.gen.betas, weight_decay=0.0)
          
          
         if opt.dis.optim =="sgd":
@@ -153,7 +154,7 @@ class Treainer(object):
         dl_c =t_data.DataLoader(train_dt ,batch_size=opt.batch_size,\
              sampler=train_sampler , drop_last=True, **kw )
              
-        dl_c_warm =t_data.DataLoader(train_dt_warm ,batch_size=opt.batch_size,  
+        dl_c_warm =t_data.DataLoader(train_dt_warm ,batch_size=opt.batch_size if not hasattr(opt,"batch_size_warm" ) else opt.batch_size_warm,  
              sampler=train_sampler_warm , drop_last=True  ,**kw)
 
 
@@ -164,9 +165,9 @@ class Treainer(object):
         if opt.warm_opt.loss_fn=="mse":
             self.critic_pixel = torch.nn.MSELoss()
         elif opt.warm_opt.loss_fn=="l1":
-            self.critic_pixel = torch.nn.MSELoss()
+            self.critic_pixel = torch.nn.L1Loss()
         elif opt.warm_opt.loss_fn=="smooth_l1":
-            self.critic_pixel = torch.nn.MSELoss()
+            self.critic_pixel = torch.nn.SmoothL1Loss()
         else:
             raise Exception("unknown")
 
@@ -185,7 +186,8 @@ class Treainer(object):
 #             epoch_start_time = time.time()
             epoch_iter = 0
 
-            for data   in self.dt_train_warm :
+            print ("warm start...",len(self.dt_train_warm))
+            for ii,data   in  enumerate(self.dt_train_warm) :
                 if len(data)>3:
                     input_lr ,input_hr , cubic_hr,_,_ =data 
                 else :
@@ -300,7 +302,8 @@ class Treainer(object):
         
     
     def g_loss (self,):
-        vgg_r = self.opt.gen ["lambda_vgg_r"]
+        #print (self.opt.gen,type(self.opt.gen),self.opt.gen.keys())
+        vgg_r = self.opt.gen.lambda_vgg_input
         #g feature f  
         x_f_fake= self.vgg(vgg_r * self.output_hr) 
         
@@ -315,7 +318,7 @@ class Treainer(object):
         x_f_real= self.vgg(vgg_r * self.input_hr) 
         self.loss_G_p = self.critic_pixel (x_f_fake,x_f_real )
 
-        self.loss_g = self.opt.gen["lambda_vgg_loss"] *( self.loss_G_g + self.loss_G_fg) + self.loss_G_p
+        self.loss_g = self.opt.gen.lambda_vgg_loss *( self.loss_G_g + self.loss_G_fg) + self.loss_G_p
 
         self.loss_g.backward()
         
@@ -324,7 +327,7 @@ class Treainer(object):
         d_fake = self.D(self.output_hr.detach())
         d_real = self.D(self.input_hr)
         
-        vgg_r = self.opt.gen .lambda_vgg_r
+        vgg_r = self.opt.gen .lambda_vgg_input
         x_f_fake= self.vgg(vgg_r* self.output_hr.detach()) 
         x_f_real= self.vgg(vgg_r* self.input_hr) 
         
@@ -340,14 +343,14 @@ class Treainer(object):
         
         #self.loss_d_f_fake = 0
         #self.loss_d_f_real = 0
-        if self.opt.loss_fn =="wgangp":
+        if self.opt.gan_loss_fn =="wgangp":
             # train with gradient penalty
-            gradient_penalty_vgg = calc_gradient_penalty(netD=self.D_vgg, real_data=x_f_real.data,\
-                fake_data=x_f_fake.data)
+            gradient_penalty_vgg,_ = cal_gradient_penalty(netD=self.D_vgg, real_data=x_f_real.data,\
+                fake_data=x_f_fake.data,device=self.device)
             gradient_penalty_vgg.backward()
             
-            gradient_penalty = calc_gradient_penalty(netD=self.D, real_data=self.input_hr.data, \
-                fake_data = self.output_hr.data)
+            gradient_penalty,_ = cal_gradient_penalty(netD=self.D, real_data=self.input_hr.data, \
+                fake_data = self.output_hr.data,  device=self.device)
             gradient_penalty.backward()
 
         
