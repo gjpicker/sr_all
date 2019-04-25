@@ -6,6 +6,7 @@ from . import util
 from . import html
 from scipy.misc import imresize
 
+import datetime
 
 class Visualizer():
     def __init__(self, opt):
@@ -136,7 +137,9 @@ class Visualizer():
 
     # errors: same format as |errors| of plotCurrentErrors
     def print_current_errors(self, epoch, i, errors, t):
-        message = '(epoch: %d, iters: %d, time: %.3f) ' % (epoch, i, t)
+        cct = datetime.datetime.now()
+        cct = str(cct)
+        message = '%s: (epoch: %d, iters: %d, time: %.3f) ' % (cct, epoch, i, t)
         for k, v in errors.items():
             message += '%s: %.3f ' % (k, v)
 
