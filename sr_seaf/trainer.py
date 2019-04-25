@@ -298,6 +298,8 @@ class Treainer(object):
 
         self.loss_w_g.backward()
 
+        if hasattr(self.opt.warm_opt, "clip"):
+            nn.utils.clip_grad_norm(self.G.parameters(), self.opt.warm_opt.clip)
 
         
     
