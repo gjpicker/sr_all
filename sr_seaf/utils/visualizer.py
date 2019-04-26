@@ -27,6 +27,7 @@ class Visualizer():
             print('create web directory %s...' % self.web_dir)
             util.mkdirs([self.web_dir, self.img_dir])
         self.log_name = os.path.join(opt.checkpoints, opt.name, 'loss_log.txt')
+        self.log_name_val = os.path.join(opt.checkpoints, opt.name, 'loss_log_val.txt')
         self.reid_log_name = os.path.join(opt.checkpoints, opt.name, 'reid_log.txt')
         
         util.mkdirs([os.path.dirname(self.log_name) , os.path.dirname(self.reid_log_name)])
@@ -39,7 +40,7 @@ class Visualizer():
         self.saved = False
 
     # |visuals|: dictionary of images to display or save
-    def display_current_results(self, visuals, epoch, save_result):
+    def display_current_results(self, visuals, epoch, save_result,offset=0,title=None):
         if self.display_id > 0:  # show images in the browser
             ncols = self.opt.display_single_pane_ncols
             if ncols > 0:
@@ -48,7 +49,7 @@ class Visualizer():
                         table {border-collapse: separate; border-spacing:4px; white-space:nowrap; text-align:center}
                         table td {width: %dpx; height: %dpx; padding: 4px; outline: 4px solid black}
                         </style>""" % (w, h)
-                title = self.name
+                title = self.name if title is None  else title
                 label_html = ''
                 label_html_row = ''
                 nrows = int(np.ceil(len(visuals.items()) / ncols))
@@ -69,16 +70,16 @@ class Visualizer():
                 if label_html_row != '':
                     label_html += '<tr>%s</tr>' % label_html_row
                 # pane col = image row
-                self.vis.images(images, nrow=ncols, win=self.display_id + 1,
+                self.vis.images(images, nrow=ncols, win=self.display_id+offset + 1,
                                 padding=2, opts=dict(title=title + ' images'))
                 label_html = '<table>%s</table>' % label_html
-                self.vis.text(table_css + label_html, win=self.display_id + 2,
+                self.vis.text(table_css + label_html, win=self.display_id+offset + 2,
                               opts=dict(title=title + ' labels'))
             else:
                 idx = 1
                 for label, image_numpy in visuals.items():
                     self.vis.image(image_numpy.transpose([2, 0, 1]), opts=dict(title=label),
-                                   win=self.display_id + idx)
+                                   win=self.display_id+offset + idx)
                     idx += 1
 
         if self.use_html and (save_result or not self.saved):  # save images to a html file
@@ -104,39 +105,31 @@ class Visualizer():
 
     # errors: dictionary of error labels and values
     def plot_current_errors(self, epoch, counter_ratio, opt, errors,loss_name=None,display_id_offset=0):
-        if not hasattr(self, 'plot_data'):
-            self.plot_data = {'X': [], 'Y': [], 'legend': list(errors.keys())}
-        self.plot_data['X'].append(epoch + counter_ratio)
-        self.plot_data['Y'].append([errors[k] for k in self.plot_data['legend']])
+        keys = "_".join( sorted(list(errors.keys())) )
+        if not hasattr(self, 'plot_data_list'):
+            self.plot_data_list = {}
+        if keys not in self.plot_data_list:
+            self.plot_data_list .update( { keys :  {'X': [], 'Y': [], 'legend': list(errors.keys())}  } )
+
+        plot_data= self.plot_data_list[ keys ]
+        self.plot_data_list[ keys ] ['X'].append(epoch + counter_ratio)
+        self.plot_data_list[ keys ] ['Y'].append([errors[k] for k in plot_data['legend']])
+        plot_data = self.plot_data_list[ keys ]
         self.vis.line(
-            X=np.stack([np.array(self.plot_data['X'])] * len(self.plot_data['legend']), 1),
-            Y=np.array(self.plot_data['Y']),
+            X=np.stack([np.array(plot_data['X'])] * len(plot_data['legend']), 1),
+            Y=np.array(plot_data['Y']),
             opts={
                 'title':  self.name + ' loss over time' if loss_name is None else loss_name,
-                'legend': self.plot_data['legend'],
+                'legend': plot_data['legend'],
                 'xlabel': 'epoch',
                 'ylabel': 'loss'},
             win=self.display_id*10+display_id_offset)
 
     def plot_current_lrs(self, epoch, counter_ratio, opt, errors,loss_name=None,display_id_offset=0):
-        if not hasattr(self, 'plot_lr_data'):
-            self.plot_lr_data = {'X': [], 'Y': [], 'legend': list(errors.keys())}
-        self.plot_lr_data['X'].append(epoch + counter_ratio)
-        self.plot_lr_data['Y'].append([errors[k] for k in self.plot_lr_data['legend']])
-        self.vis.line(
-            X=np.stack([np.array(self.plot_lr_data['X'])] * len(self.plot_lr_data['legend']), 1),
-            Y=np.array(self.plot_lr_data['Y']),
-            opts={
-                'title':  self.name + ' loss over time' if loss_name is None else loss_name,
-                'legend': self.plot_lr_data['legend'],
-                'xlabel': 'epoch',
-                'ylabel': 'loss'},
-            win=self.display_id*10+display_id_offset)
-
-
+        self.plot_current_errors(epoch, counter_ratio, opt, errors,loss_name,display_id_offset)
 
     # errors: same format as |errors| of plotCurrentErrors
-    def print_current_errors(self, epoch, i, errors, t):
+    def print_current_errors(self, epoch, i, errors, t,log_name=None):
         cct = datetime.datetime.now()
         cct = str(cct)
         message = '%s: (epoch: %d, iters: %d, time: %.3f) ' % (cct, epoch, i, t)
@@ -144,8 +137,14 @@ class Visualizer():
             message += '%s: %.3f ' % (k, v)
 
         print(message)
-        with open(self.log_name, "a") as log_file:
+        if log_name is None :
+            log_name = self.log_name
+        else:
+            log_name = os.path.join(os.path.dirname(self.log_name) , log_name) 
+        with open(log_name, "a") as log_file:
             log_file.write('%s\n' % message)
+
+
 
     def print_reid_results(self, message):
         with open(self.reid_log_name, "a") as log_file:
@@ -176,3 +175,6 @@ class Visualizer():
             txts.append(label)
             links.append(image_name)
         webpage.add_images(ims, txts, links, width=self.win_size)
+
+
+
