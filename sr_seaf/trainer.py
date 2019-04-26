@@ -191,7 +191,12 @@ class Treainer(object):
         
     def run(self):
 
-        self._run_warm()
+        current_epoch= self.load_networks()
+
+        if current_epoch+1>=self.opt.epoches_warm:
+            self._run_train()
+        else:
+            self._run_warm()
 
     def _validate_(self):
         with torch.no_grad():
@@ -251,6 +256,7 @@ class Treainer(object):
 
 
     def _run_warm(self):
+        print ("warm...."*8)
         total_steps=0 
         opt= self.opt 
         dataset_size= len(self.dt_train_warm) * opt.batch_size 
@@ -314,6 +320,7 @@ class Treainer(object):
 
 
     def _run_train(self):
+        print ("train.i..."*8)
         total_steps=0
         opt= self.opt
 
@@ -516,18 +523,33 @@ class Treainer(object):
 
 
 
-    def load_networks(self, epoch):
+    def load_networks(self, epoch=None):
         """Load all the networks from the disk.
         Parameters:
             epoch (int) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
+        pth_list= [os.path.basename(x) for x in os.listdir(self.save_dir)]
+        pth_list= [x.split("_")[0] for x in pth_list if "_net" in x and ".pth"  in x and "best" not in x ]
+        pth_list=sorted(pth_list)[:-1]
+        pth_list=list( map(int, pth_list))
+        pth_list=sorted(pth_list)
+        current_epoch = 0 
+        try:
+            current_epoch= int(pth_list[-1])
+        except :
+            pass
+
+        if current_epoch<=0 :
+            return current_epoch
+
+        epoch = current_epoch
         #for name in self.model_names:
         for name in ["G","D","D_vgg"]:
             if isinstance(name, str):
                 load_filename = '%s_net_%s.pth' % (epoch, name)
                 load_path = os.path.join(self.save_dir, load_filename)
                 if not os.path.isfile(load_path):
-                    print ("***","fail find%s"(load_path))
+                    print ("***","fail find%s"%(load_path))
                     continue
                 net = getattr(self, 'net' + name)
                 if isinstance(net, torch.nn.DataParallel):
@@ -540,8 +562,9 @@ class Treainer(object):
                     del state_dict._metadata
 
                 # patch InstanceNorm checkpoints prior to 0.4
-                for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
-                    self.__patch_instance_norm_state_dict(state_dict, net, key.split('.'))
+                #for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
+                #    self.__patch_instance_norm_state_dict(state_dict, net, key.split('.'))
                 net.load_state_dict(state_dict)
 
     
+        return current_epoch
