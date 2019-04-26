@@ -110,10 +110,9 @@ class Treainer(object):
 
         print (opt)
 
-        self.optim_G_warm= torch. optim.Adam(filter(lambda p: p.requires_grad, self.netG.parameters()),\
+        self.optim_G= torch. optim.Adam(filter(lambda p: p.requires_grad, self.netG.parameters()),\
          lr=opt.warm_opt.lr, betas=opt.warm_opt.betas, weight_decay=0.0)
          
-        self.optim_G = self.optim_G_warm
 #        self.optim_G= torch.optim.Adam(filter(lambda p: p.requires_grad, self.netG.parameters()),\
 #         lr=opt.gen.lr, betas=opt.gen.betas, weight_decay=0.0)
          
@@ -135,30 +134,26 @@ class Treainer(object):
           
         print ("create schedule ")
         
-        lr_sc_warm = get_scheduler(self.optim_G_warm,opt.warm_opt )
         lr_sc_G = get_scheduler(self.optim_G,opt.gen )
         lr_sc_D = get_scheduler(self.optim_D,opt.dis )
         
         
         self.schedulers = []
-        self.schedulers_warm = []
         
-        self.schedulers_warm.append(lr_sc_warm)
         self.schedulers.append(lr_sc_G)
         self.schedulers.append(lr_sc_D)
         
         
         # =====START: ADDED FOR DISTRIBUTED======
+        train_dt = torch.utils.data.ConcatDataset([train_dt, train_dt_warm])
+
         train_sampler = DistributedSampler(train_dt) if num_gpus > 1 else None
-        train_sampler_warm = DistributedSampler(train_dt_warm) if num_gpus > 1 else None
         val_sampler_warm = DistributedSampler(val_dt_warm) if num_gpus > 1 else None
         # =====END:   ADDED FOR DISTRIBUTED======
 
         kw ={"pin_memory":True , "num_workers":8 } if torch.cuda.is_available() else {}
         dl_c =t_data.DataLoader(train_dt ,batch_size=opt.batch_size,\
              sampler=train_sampler , drop_last=True, **kw )
-        dl_c_warm =t_data.DataLoader(train_dt_warm ,batch_size=opt.batch_size if not hasattr(opt,"batch_size_warm" ) else opt.batch_size_warm,  
-             sampler=train_sampler_warm , drop_last=True  ,**kw)
              
 
         dl_val_warm =t_data.DataLoader(val_dt_warm ,batch_size=opt.batch_size if not hasattr(opt,"batch_size_warm" ) else opt.batch_size_warm,  
@@ -167,7 +162,6 @@ class Treainer(object):
 
 
         self.dt_train = dl_c
-        self.dt_train_warm = dl_c_warm
         self.dt_val_warm =  dl_val_warm
 
 
@@ -189,14 +183,6 @@ class Treainer(object):
         self.save_dir = os.path.dirname( self.visualizer. log_name )
 
         
-    def run(self):
-
-        current_epoch= self.load_networks()
-
-        if current_epoch+1>=self.opt.epoches_warm:
-            self._run_train()
-        else:
-            self._run_warm()
 
     def _validate_(self):
         with torch.no_grad():
@@ -254,69 +240,9 @@ class Treainer(object):
             return val_info
 
 
-
-    def _run_warm(self):
-        print ("warm...."*8)
-        total_steps=0 
-        opt= self.opt 
-        dataset_size= len(self.dt_train_warm) * opt.batch_size 
-
-        self.model_names = ["G"]
-
-        best_loss= 10e5
-        for epoch in range(self.opt.epoches_warm):
-            self.epoch = epoch
-#             epoch_start_time = time.time()
-            val_loss = self._validate_()
-            val_loss = val_loss[0]
-            if best_loss  > val_loss:
-                best_loss= val_loss
-                self.save_networks("best")
-            self.save_networks(epoch)
-
-            epoch_iter = 0
-            print ("warm start...",len(self.dt_train_warm))
-            for ii,data   in  enumerate(self.dt_train_warm) :
-                if len(data)>3:
-                    input_lr ,input_hr , cubic_hr,_,_ =data 
-                else :
-                    input_lr ,input_hr , cubic_hr =data 
-                
-                iter_start_time = time.time()
-
-                self. input_lr = input_lr .to(self.device)
-                self. input_hr = input_hr .to(self.device)
-                self. input_cubic_hr = cubic_hr
-
-                self.forward()
-                self.optim_G_warm .zero_grad ()
-                self.warm_loss()
-                self.optim_G_warm.step()
-
-
-                self.visualizer.reset()
-                total_steps += opt.batch_size
-                epoch_iter += opt.batch_size
-
-                if total_steps % opt.display_freq == 0:
-                    save_result = total_steps % opt.update_html_freq == 0
-                    self.visualizer.display_current_results(self.get_current_visuals(), opt.epoches_warm, save_result)
-
-                if total_steps % opt.print_freq == 0:
-                    errors = self.get_current_errors()
-                    t = (time.time() - iter_start_time) / opt.batch_size
-                    self.visualizer.print_current_errors(epoch , epoch_iter, errors, t)
-                    if opt.display_id > 0:
-                        self.visualizer.plot_current_errors(epoch, float(epoch_iter)/dataset_size , opt, errors)
-
-            
-                if self.rank !=0 :
-                    continue
-            lr_warm,_=self.update_learning_rate(is_warm=True)
-            self.visualizer.plot_current_lrs(epoch,0,opt=None,\
-                errors=OrderedDict([('lr_warm_g',lr_warm),("lr_g",0),("lr_d",0)]) , loss_name="lr_warm" ,display_id_offset=1 )
-
-
+    def run(self):
+        current_epoch= self.load_networks()
+        self._run_train()
 
 
     def _run_train(self):
@@ -330,7 +256,7 @@ class Treainer(object):
         dataset_size= len(self.dt_train) * opt.batch_size 
         best_loss = 10e5
 
-        for epoch in range(self.opt.epoches_warm , self.opt.epoches_warm +self.opt.epoches):
+        for epoch in range(0 , self.opt.epoches_warm +self.opt.epoches):
             self.epoch = epoch
 #             epoch_start_time = time.time()
             epoch_iter = 0
@@ -356,10 +282,12 @@ class Treainer(object):
                 self. input_cubic_hr = cubic_hr
                 
                 self.forward()
+
                 self.optim_G .zero_grad ()
                 self.g_loss()
                 self.optim_G.step()
-                
+
+
                 self.optim_D .zero_grad ()
                 self.d_loss()
                 self.optim_D.step()
@@ -394,20 +322,6 @@ class Treainer(object):
 #         self.input_hr 
         pass 
         
-    def warm_loss(self):
-
-        #x_f_fake= self.vgg(self.output_hr)
-        #x_f_real= self.vgg(self.input_hr)
-
-        ## pixel 
-        #self.loss_G_p = self.critic_pixel (x_f_fake , x_f_real ) 
-        self.loss_w_g = self.critic_pixel(self.output_hr , self.input_hr )
-
-        self.loss_w_g.backward()
-
-        if hasattr(self.opt.warm_opt, "clip"):
-            nn.utils.clip_grad_norm(self.netG.parameters(), self.opt.warm_opt.clip)
-
         
     
     def g_loss (self,):
@@ -418,19 +332,25 @@ class Treainer(object):
         
         #g .. f 
         d_fake = self.netD(self.output_hr)
-        self.loss_G_g = self.gan_loss (d_fake,True )
+        self.loss_G_g = self.opt.gen.lambda_vgg_loss * self.gan_loss (d_fake,True )
 
         fd_fake = self.netD_vgg(x_f_fake)
-        self.loss_G_fg = self.gan_loss (fd_fake,True )
+        self.loss_G_fg = self.opt.gen.lambda_vgg_loss * self.gan_loss (fd_fake,True )
 
         ## perception 
         x_f_real= self.vgg(vgg_r * self.input_hr) 
         self.loss_G_p = self.critic_pixel (x_f_fake,x_f_real )
 
-        self.loss_g = self.opt.gen.lambda_vgg_loss *( self.loss_G_g + self.loss_G_fg) + self.loss_G_p
+
+        self.loss_w_g = self.opt.warm_opt.lambda_warm_loss* self.critic_pixel(self.output_hr , self.input_hr )
+
+        self.loss_g =  self.loss_G_g + self.loss_G_fg  + self.loss_G_p +\
+             self.loss_w_g
 
         self.loss_g.backward()
         
+        if hasattr(self.opt.warm_opt, "clip"):
+            nn.utils.clip_grad_norm(self.netG.parameters(), self.opt.warm_opt.clip)
         
     def d_loss (self,):
         d_fake = self.netD(self.output_hr.detach())
@@ -488,18 +408,12 @@ class Treainer(object):
         return OrderedDict([('input', input),  ('fake', fake), ('target', target)])
 
     def update_learning_rate(self,is_warm =True ):
-        if is_warm :
-            for scheduler in self.schedulers_warm:
-                scheduler.step(self.loss_w_g)
-            
-            lr = self.optim_G_warm.param_groups[0]['lr']
-            return (lr,0)
-        else:
+        if True:
             for scheduler in self.schedulers:
                 scheduler.step()
 
             lr_g = self.optim_G.param_groups[0]['lr']
-            lr_d = self.optim_G.param_groups[0]['lr']
+            lr_d = self.optim_D.param_groups[0]['lr']
             return (lr_g,lr_d)
         
     def save_networks(self, epoch):
