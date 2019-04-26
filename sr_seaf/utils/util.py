@@ -22,7 +22,7 @@ def tensor2im(image_tensor, imtype=np.uint8):
         image_numpy = np.transpose(image_numpy, (1, 2, 0)) * 255.0
     else:
         image_numpy = (np.transpose(image_numpy, (1, 2, 0)) * std + mean) * 255.0
-    return image_numpy.astype(imtype)
+    return np.clip( image_numpy.astype(imtype) ,0,255 )
 
 
 def diagnose_network(net, name='network'):
