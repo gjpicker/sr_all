@@ -78,12 +78,12 @@ class Treainer(object):
             raise Exception("unknow ")
                 
         
-        dis_net_str = opt.dis_net  if hasattr(opt,"dis_net") else "fc":
+        dis_net_str = opt.dis_net  if hasattr(opt,"dis_net") else "fc"
         if dis_net_str=="fc":
             self.netD = model.D()
             self.netD_vgg= model. D(input_c=512,input_width=18) 
-        elif  dis_net_str="nlayer":
-            self.netD = model.NLayerDiscriminator(input_nc=512)
+        elif  dis_net_str=="nlayer":
+            self.netD = model.NLayerDiscriminator(input_nc=3)
             self.netD_vgg= model. PixelDiscriminator(input_nc=512) 
         
         
@@ -108,6 +108,15 @@ class Treainer(object):
         self.netD= self.netD.to(self.device)
         self.netD_vgg= self.netD_vgg.to(self.device)
         self.netG= self.netG.to(self.device)
+
+        print ("======"*8)
+        print (self.vgg)
+        print ("======"*8)
+        print (self.netD)
+        print ("======"*8)
+        print (self.netD_vgg)
+        print ("======"*8)
+        print (self.netG)
 
         #=====START: ADDED FOR DISTRIBUTED======
         if num_gpus > 1:
@@ -273,25 +282,29 @@ class Treainer(object):
 
 
             for data in self.dt_train :
+
+
                 scale=4
                 if len(data)>3:
                     input_lr ,input_hr , cubic_hr,input_lr_3,input_lr_2 =data 
+                    self. input_hr = input_hr .to(self.device)
                     scale = np.random.choice([2,3,4])
                     if scale==3 :
                         self. input_lr = input_lr_3 .to(self.device)
+                        self. input_hr = input_hr[:,:,1:-1,1:-1] .to(self.device)
+                        assert self.input_hr.shape[-2:] == (294,294)
                     elif scale==2 :
                         self. input_lr = input_lr_2 .to(self.device)
                     else:
                         self. input_lr = input_lr .to(self.device)
                 else :
                     input_lr ,input_hr , cubic_hr =data 
+                    self. input_hr = input_hr .to(self.device)
                 
+                self. input_cubic_hr = cubic_hr
+
                 iter_start_time = time.time()
 
-
-                self. input_hr = input_hr .to(self.device)
-                self. input_cubic_hr = cubic_hr
-                
                 self.forward(scale=scale)
 
                 self.optim_G .zero_grad ()
@@ -411,9 +424,16 @@ class Treainer(object):
                             ])
 
     def get_current_visuals(self):
-        input = util.tensor2im(self.input_cubic_hr)
-        target = util.tensor2im(self.input_hr)
-        fake = util.tensor2im(self.output_hr.detach() )
+        def mmsize(v,size):
+            if v.shape[0]!=size:
+                dl = (v.shape[0]-size)//2
+                return v[dl:-dl,dl:-dl,:] 
+            return v
+        input =mmsize( util.tensor2im(self.input_cubic_hr) ,294)
+        target =mmsize( util.tensor2im(self.input_hr) ,294)
+        fake =mmsize( util.tensor2im(self.output_hr.detach() ) , 294)
+        #mmz = min([input.shape[0] ,target.shape[0],fake.shape[0] ] )
+        
         return OrderedDict([('input', input),  ('fake', fake), ('target', target)])
 
     def update_learning_rate(self,is_warm =True ):

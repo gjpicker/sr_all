@@ -53,8 +53,7 @@ class TrainDatasetFromFolder(data.Dataset):
         self.rotate = rotate
         self.fliplr = fliplr
         self.fliptb = fliptb
-#         self.scale_factor = scale_factor
-        self.scale_factor_list = [2,3,4]
+        self.scale_factor = scale_factor
 
     def __getitem__(self, index):
         # load image
@@ -69,9 +68,8 @@ class TrainDatasetFromFolder(data.Dataset):
         hr_img_h = self.crop_size
 
         # determine LR image size
-        scale_factor= 4 
-        lr_img_w = hr_img_w // scale_factor
-        lr_img_h = hr_img_h // scale_factor
+        lr_img_w = hr_img_w // self.scale_factor
+        lr_img_h = hr_img_h // self.scale_factor
 
         # random scaling between [0.5, 1.0]
         if self.random_scale:
@@ -149,6 +147,10 @@ class TestDatasetFromFolder(TrainDatasetFromFolder):
                  fliptb=True, scale_factor=4,is_debug_size=0):
 
         #super(TestDatasetFromFolder, self).__init__()
+        rotate=False
+        fliplr=False
+        fliptb=False
+
         super().__init__(image_index_path,is_gray,random_scale,crop_size,rotate,fliplr,fliptb,scale_factor,is_debug_size)
         self.image_filenames = self.image_filenames_val
 
