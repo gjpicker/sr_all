@@ -53,7 +53,8 @@ class TrainDatasetFromFolder(data.Dataset):
         self.rotate = rotate
         self.fliplr = fliplr
         self.fliptb = fliptb
-        self.scale_factor = scale_factor
+#         self.scale_factor = scale_factor
+        self.scale_factor_list = [2,3,4]
 
     def __getitem__(self, index):
         # load image
@@ -68,8 +69,9 @@ class TrainDatasetFromFolder(data.Dataset):
         hr_img_h = self.crop_size
 
         # determine LR image size
-        lr_img_w = hr_img_w // self.scale_factor
-        lr_img_h = hr_img_h // self.scale_factor
+        scale_factor= 4 
+        lr_img_w = hr_img_w // scale_factor
+        lr_img_h = hr_img_h // scale_factor
 
         # random scaling between [0.5, 1.0]
         if self.random_scale:
@@ -111,22 +113,19 @@ class TrainDatasetFromFolder(data.Dataset):
 
         nm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         # hr_img HR image
-#         hr_transform_common = Compose([Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() , nm,])
-        hr_transform_common = [Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() ]
-        hr_transform_vgg = Compose(hr_transform_common)
-        hr_transform_norm = Compose(hr_transform_common+[nm])
-        hr_img = hr_transform_norm(img)
-        hr_img_vgg = hr_transform_vgg(img)
+        hr_transform_common = Compose([Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() , nm,])
+        hr_img = hr_transform_common(img)
 
         # lr_img LR image
-#         lr_transform = Compose([Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC),  ToTensor() , nm, ])
-#         lr_img = lr_transform(img)
+        lr_transform = Compose([Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC),  ToTensor() , nm, ])
+        lr_img = lr_transform(img)
 
-        lr_transform_common = [Resize((lr_img_w, lr_img_h), interpolation=Image.BICUBIC), ToTensor() ]
-        lr_transform_vgg = Compose(lr_transform_common)
-        lr_transform_norm = Compose(lr_transform_common+[nm])
-        lr_img = lr_transform_norm(img)
-        lr_img_vgg = lr_transform_vgg(img)
+        lr_transform = Compose([Resize((hr_img_w // 3, hr_img_h // 3), interpolation=Image.BICUBIC),  ToTensor() , nm, ])
+        lr_img_3 = lr_transform(img)
+
+        lr_transform = Compose([Resize((hr_img_w // 2, hr_img_h // 2), interpolation=Image.BICUBIC),  ToTensor() , nm, ])
+        lr_img_2 = lr_transform(img)
+
 
 
         # Bicubic interpolated image
@@ -136,7 +135,7 @@ class TrainDatasetFromFolder(data.Dataset):
 
 
 
-        return lr_img, hr_img, bc_img , lr_img_vgg, hr_img_vgg
+        return lr_img, hr_img, bc_img , lr_img_3, lr_img_2
 
     def __len__(self):
         if self.is_debug_size>0:
