@@ -26,9 +26,11 @@ def calculate_valid_crop_size(crop_size, scale_factor):
 class TrainDatasetFromFolder(data.Dataset):
     def __init__(self, image_index_path, is_gray=False, random_scale=True, crop_size=296, rotate=True, fliplr=True,
 #     def __init__(self, image_dirs, is_gray=False, random_scale=True, crop_size=296, rotate=True, fliplr=True,
-                 fliptb=True, scale_factor=4,is_debug_size=0):
+                 fliptb=True, scale_factor=4,is_debug_size=0,is_normlize=True):
                      
+                            
         super(TrainDatasetFromFolder, self).__init__()
+        print ("TrainDatasetFromFolder",is_normlize)
 
         self.is_debug_size =is_debug_size;
         self.image_filenames = []
@@ -55,7 +57,13 @@ class TrainDatasetFromFolder(data.Dataset):
         self.fliptb = fliptb
         self.scale_factor = scale_factor
 
+        if is_normlize :
+            self.nm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        else:
+            self.nm = Normalize(mean=[0,0,0], std=[1,1,1])
+        print ("&&&"*8,self.nm)
     def __getitem__(self, index):
+
         # load image
         ## random choice 
         img = load_img(self.image_filenames[index])
@@ -109,7 +117,7 @@ class TrainDatasetFromFolder(data.Dataset):
             img = img.convert('YCbCr')
             # img, _, _ = img.split()
 
-        nm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        nm=self.nm
         # hr_img HR image
         hr_transform_common = Compose([Resize((hr_img_w, hr_img_h), interpolation=Image.BICUBIC), ToTensor() , nm,])
         hr_img = hr_transform_common(img)
@@ -144,14 +152,15 @@ class TrainDatasetFromFolder(data.Dataset):
 
 class TestDatasetFromFolder(TrainDatasetFromFolder):
     def __init__(self, image_index_path, is_gray=False, random_scale=True, crop_size=296, rotate=True, fliplr=True,
-                 fliptb=True, scale_factor=4,is_debug_size=0):
+                 fliptb=True, scale_factor=4,is_debug_size=0,is_normlize=True):
 
         #super(TestDatasetFromFolder, self).__init__()
+        print ("TestDatasetFromFolder",is_normlize)
         rotate=False
         fliplr=False
         fliptb=False
 
-        super().__init__(image_index_path,is_gray,random_scale,crop_size,rotate,fliplr,fliptb,scale_factor,is_debug_size)
+        super().__init__(image_index_path,is_gray,random_scale,crop_size,rotate,fliplr,fliptb,scale_factor,is_debug_size,is_normlize)
         self.image_filenames = self.image_filenames_val
 
 
