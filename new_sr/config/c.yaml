@@ -1,0 +1,11 @@
+
+
+
+
+
+train_conf :
+  dis :
+    net_type: pixel #nlayer ,pixel ,multi 
+    num_d : 3 # if net_type==multi ,return cascad range(D)
+  gen :
+    net_type : carnm #carnm carn carn_gan carn_ganm

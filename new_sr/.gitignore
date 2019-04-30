@@ -1,0 +1,6 @@
+*gz
+*tar
+images/backup.tar.gz
+images/*png
+*pyc
+*.weight
