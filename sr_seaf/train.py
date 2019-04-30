@@ -4,7 +4,8 @@ import yaml
 
 import torch 
 import dataset as dt 
-import trainer as tr 
+#import trainer as tr 
+import trainer_2 as tr 
 import torch.utils.data as t_data
 
 from collections import namedtuple
