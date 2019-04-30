@@ -13,10 +13,6 @@ import torch.nn.functional as F
 import torchvision
 import torch.nn as nn 
 
-from .nets.carn.carn import Net as g1_net 
-from .nets.carn.carn_m import Net as g2_net 
-from .nets.pcarn.pcarn import Net as g1_net 
-
 ###############################################################################
 
 def get_scheduler(optimizer, opt):
@@ -159,12 +155,14 @@ def cal_gradient_penalty(netD, real_data, fake_data, device, type='mixed', const
         return 0.0, None
 
 
-def define_G(ge_net_str, g_path=""):
+def define_G(ge_net_str, g_path="",opt={}):
     '''
     ge_net_str==opt.gen.net_type ,
     g_path chpt 
     '''
-    assert ge_net_str in ["carnm" ,"carn" ,"carn_gan" ,"carn_ganm"] , "but expect "+ge_net_str
+#     assert ge_net_str in ["carnm" ,"carn" ,"carn_gan" ,"carn_ganm"] , "but expect "+ge_net_str
+
+
 
     #ge_net_str= opt.gen.net_type
     netG = None 
@@ -174,11 +172,24 @@ def define_G(ge_net_str, g_path=""):
     if ge_net_str =="srfeat":
         raise Exception("not support multi-scale")
     elif ge_net_str =="carn":
-        
-        netG= g1_net()
+        kwargs = {
+        "group": 1,
+        "multi_scale": True,
+        "scale": 0,
+        }
+        from .nets.carn.carn import Net as g1_net 
+        netG= g1_net(**kwargs)
     elif ge_net_str =="carnm":
-        netG= g2_net()
+        from .nets.carn.carn_m import Net as g2_net 
+        kwargs = {
+        "group": 4,
+        "multi_scale": True,
+        "scale": 0,
+        }
+        netG= g2_net(**kwargs)
+        print (netG)
     elif "carn_gan" in  ge_net_str:
+        from .nets.pcarn.pcarn import Net as g1_net 
         if ge_net_str=="carn_gan":
             kwargs = {
                 "num_channels": 64,
@@ -195,8 +206,41 @@ def define_G(ge_net_str, g_path=""):
             "scale": 0,
             }
             netG = g1_net(**kwargs)
-    else :
-        raise Exception("unknow ")
+    elif ge_net_str == 'DBPN':
+        from .nets.srfbn_cvpr19.dbpn_arch import DBPN
+        netG = DBPN(in_channels=opt['in_channels'], out_channels=opt['out_channels'],
+                         num_features=opt['num_features'], bp_stages=opt['num_blocks'],
+                         upscale_factor=opt['scale'])
+
+    elif ge_net_str == 'D-DBPN':
+        from .nets.srfbn_cvpr19.dbpn_arch import D_DBPN
+        netG = D_DBPN(in_channels=opt['in_channels'], out_channels=opt['out_channels'],
+                           num_features=opt['num_features'], bp_stages=opt['num_blocks'],
+                           upscale_factor=opt['scale'])
+
+    elif ge_net_str.find('SRFBN') >= 0:
+        from .nets.srfbn_cvpr19.srfbn_arch import SRFBN
+        netG = SRFBN(in_channels=opt['in_channels'], out_channels=opt['out_channels'],
+                                  num_features=opt['num_features'], num_steps=opt['num_steps'], num_groups=opt['num_groups'],
+                                  upscale_factor=opt['scale'])
+
+    elif ge_net_str.find('RDN') >= 0:
+        from .nets.srfbn_cvpr19.rdn_arch import RDN
+        netG = RDN(in_channels=opt['in_channels'], out_channels=opt['out_channels'],
+                             num_features=opt['num_features'], num_blocks = opt['num_blocks'], num_layers = opt['num_layers'],
+                             upscale_factor=opt['scale'])
+
+    elif ge_net_str.find('EDSR') >= 0:
+        from .nets.srfbn_cvpr19.edsr_arch import EDSR
+        netG = EDSR(in_channels=opt['in_channels'], out_channels=opt['out_channels'],
+                             num_features=opt['num_features'], num_blocks = opt['num_blocks'], res_scale=opt['res_scale'],
+                             upscale_factor=opt['scale'])
+
+    else:
+        raise NotImplementedError("Network [%s] is not recognized." % ge_net_str)
+
+    
+    
     
     if os.path.isfile(g_path):
         if not torch.cuda.is_available():
@@ -455,31 +499,31 @@ class Vgg16(nn.Module):
         return relu5_3
         # return [relu1_2, relu2_2, relu3_3, relu4_3]
     
-if __name__ == "__main__":
-    import  unittest 
-    class TestAll(unittest.TestCase):
-        
-        def setUp(self):
-            class att(object) :
-                vgg = "transfer" #"transfer"
-                model_dir  = "./"
-            self.opt = att() 
-            if self.opt . vgg =="transfer":
-                m = Vgg16 ()
-                if os.path.isfile(os.path.join(self.opt.model_dir ,"vgg16.weight")):
-                    torch.save(m.state_dict(),"./vgg16.weight")
-            
-            
-        def test_vgg(self):
-            print (self.opt) 
-            ##mock 
-            vgg = define_vgg(self.opt )
-            self.assertEqual(len([x for x in vgg.named_children()]) ,13 )
-            
-            setattr(self.opt ,"vgg" ,"classify")
-            vgg = define_vgg(self.opt )
-            self.assertEqual(len([x for x in vgg.named_children()]) ,1 )
-
-            
-    
-    unittest.main()
+# if __name__ == "__main__":
+#     import  unittest 
+#     class TestAll(unittest.TestCase):
+#         
+#         def setUp(self):
+#             class att(object) :
+#                 vgg = "transfer" #"transfer"
+#                 model_dir  = "./"
+#             self.opt = att() 
+#             if self.opt . vgg =="transfer":
+#                 m = Vgg16 ()
+#                 if os.path.isfile(os.path.join(self.opt.model_dir ,"vgg16.weight")):
+#                     torch.save(m.state_dict(),"./vgg16.weight")
+#             
+#             
+#         def test_vgg(self):
+#             print (self.opt) 
+#             ##mock 
+#             vgg = define_vgg(self.opt )
+#             self.assertEqual(len([x for x in vgg.named_children()]) ,13 )
+#             
+#             setattr(self.opt ,"vgg" ,"classify")
+#             vgg = define_vgg(self.opt )
+#             self.assertEqual(len([x for x in vgg.named_children()]) ,1 )
+# 
+#             
+#     
+#     unittest.main()
