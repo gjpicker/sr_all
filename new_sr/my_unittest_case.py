@@ -125,33 +125,96 @@ train_conf :
                 
             #######test stat_dict 
         def test_pretrained(self):
-            x1 =self.getnetG_list()
-            
+#             x1 =self.getnetG_list()
             x2 = {
             "SRFBN":"./download_tmp/SRFBN_CVPR19_Models/SRFBN_x4_BI.pth",
             "carnm":"./download_tmp/carn_m.pth",
             "carn":"./download_tmp/carn.pth",
             "carn_gan":"./download_tmp/PCARN-L1.pth",
-            "carn_ganm":"./download_tmp/PCARN-M-L1.pth",
+            "carn_ganm":"./download_tmp/PCARN-M-L1.pth"
             }
             
-            for k ,g_path  in x2.items():
-                netG= x1[k] 
+            x1={}
+            x1.update({"carn": define_G(ge_net_str="carn" ,g_path= x2["carn"]) })
+            x1.update({"carnm": define_G(ge_net_str="carnm", g_path=x2["carnm"]) })
+            x1.update({"carn_ganm": define_G(ge_net_str="carn_ganm", g_path=x2["carn_ganm"]) })
+            x1.update({"carn_gan": define_G(ge_net_str="carn_gan",g_path= x2["carn_gan"]) })
+            
+            opt={"in_channels":3,"out_channels":3,
+                "num_features":64,"num_blocks":6,
+                "scale":4,
+                "num_steps":1,
+                "num_groups": 2,   
+                "num_layers":3,
+                "res_scale":4,
+                }
                 
-                if not torch.cuda.is_available():
-                    checkpoint= torch.load(g_path, map_location=lambda storage, loc: storage) 
-                else :
-                    checkpoint= torch.load(g_path)
-                if 'state_dict' in checkpoint.keys(): checkpoint = checkpoint['state_dict']
-                if "module." in list(checkpoint.keys())[0] :
-                    from collections import OrderedDict
-                    new_state_dict = OrderedDict()
-                    for k, v in checkpoint.items():
-                        name = k[7:] # remove `module.`
-                        new_state_dict[name] = v
-                    
-                    checkpoint= new_state_dict
-                netG.load_state_dict(checkpoint)
+            opt.update( {
+            "which_model": "D-DBPN",
+            "num_features": 64,
+            "in_channels": 3,
+            "out_channels": 3,
+            "num_blocks": 7
+            } )
+            x1.update({opt["which_model"]:\
+             define_G(ge_net_str=opt["which_model"],opt=opt) })
+            
+            opt.update( {
+        "which_model": "EDSR",
+        "num_features": 256,
+        "in_channels": 3,
+        "out_channels": 3,
+        "num_blocks": 32,
+        "res_scale": 0.1
+            } )
+            x1.update({
+            opt["which_model"]:
+             define_G(ge_net_str=opt["which_model"],opt=opt) })
+            
+            
+            
+            opt.update( {
+        "which_model": "RDN",
+        "num_features": 64,
+        "in_channels": 3,
+        "out_channels": 3,
+        "num_blocks": 16,
+        "num_layers": 8
+            } )
+            x1.update({opt["which_model"]:
+            define_G(ge_net_str=opt["which_model"],opt=opt) })
+            
+            
+            
+            opt.update( {
+        "which_model": "SRFBN",
+        "num_features": 64,
+        "in_channels": 3,
+        "out_channels": 3,
+        "num_steps": 4,
+        "num_groups": 6
+            } )
+            x1.update({opt["which_model"]: define_G(ge_net_str=opt["which_model"] ,opt=opt,g_path=x2[opt["which_model"]]) })
+            
+            
+            
+#             for k ,g_path  in x2.items():
+#                 netG= x1[k] 
+#                 
+#                 if not torch.cuda.is_available():
+#                     checkpoint= torch.load(g_path, map_location=lambda storage, loc: storage) 
+#                 else :
+#                     checkpoint= torch.load(g_path)
+#                 if 'state_dict' in checkpoint.keys(): checkpoint = checkpoint['state_dict']
+#                 if "module." in list(checkpoint.keys())[0] :
+#                     from collections import OrderedDict
+#                     new_state_dict = OrderedDict()
+#                     for k, v in checkpoint.items():
+#                         name = k[7:] # remove `module.`
+#                         new_state_dict[name] = v
+#                     
+#                     checkpoint= new_state_dict
+#                 netG.load_state_dict(checkpoint)
 
 
 #         def test_D(self):

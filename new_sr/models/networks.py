@@ -244,11 +244,19 @@ def define_G(ge_net_str, g_path="",opt={}):
     
     if os.path.isfile(g_path):
         if not torch.cuda.is_available():
-            netG.load_state_dict(\
-                torch.load(g_path, map_location=lambda storage, loc: storage) )
+            checkpoint= torch.load(g_path, map_location=lambda storage, loc: storage) 
         else :
-            netG.load_state_dict(\
-                torch.load(g_path))
+            checkpoint= torch.load(g_path)
+        if 'state_dict' in checkpoint.keys(): checkpoint = checkpoint['state_dict']
+        if "module." in list(checkpoint.keys())[0] :
+            from collections import OrderedDict
+            new_state_dict = OrderedDict()
+            for k, v in checkpoint.items():
+                name = k[7:] # remove `module.`
+                new_state_dict[name] = v
+            
+            checkpoint= new_state_dict
+        netG.load_state_dict(checkpoint)
     else :
         print ("===="*8,"fail load pretrained")
         
