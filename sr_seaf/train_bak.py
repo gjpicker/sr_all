@@ -84,17 +84,17 @@ if __name__=="__main__":
 
 
     x_dir_vid2k =train_config.vid2k_data_root
-#     x_dir_imagenet = train_config.imagenet_data_root 
+    x_dir_imagenet = train_config.imagenet_data_root 
 
 
     if config["is_debug"]:
         is_debug_size=train_config.batch_size
-#         dt_pre = dt. TrainDatasetFromFolder(image_index_path=x_dir_imagenet,is_debug_size=is_debug_size)
+        dt_pre = dt. TrainDatasetFromFolder(image_index_path=x_dir_imagenet,is_debug_size=is_debug_size)
         dt_gan = dt. TrainDatasetFromFolder(image_index_path=x_dir_vid2k,is_debug_size=is_debug_size)
         print ("debug mode::size->",len(dt_gan))
         dt_gan_val = dt. TestDatasetFromFolder(image_index_path=x_dir_vid2k,is_debug_size=is_debug_size)
     else :
-#         dt_pre = dt. TrainDatasetFromFolder(image_index_path=x_dir_imagenet)
+        dt_pre = dt. TrainDatasetFromFolder(image_index_path=x_dir_imagenet)
         dt_gan = dt. TrainDatasetFromFolder(image_index_path=x_dir_vid2k)
         dt_gan_val = dt. TestDatasetFromFolder(image_index_path=x_dir_vid2k)
     # =====START: ADDED FOR DISTRIBUTED======
@@ -108,7 +108,7 @@ if __name__=="__main__":
 
     dist_info = [args.rank, num_gpus, args.group_name, dist_config]
     tr_l = tr.Treainer(opt=train_config  ,\
-        train_dt_warm= None,
+        train_dt_warm= dt_pre,
         train_dt = dt_gan , dis_list =  dist_info, val_dt_warm = dt_gan_val )
     tr_l.run()
 
