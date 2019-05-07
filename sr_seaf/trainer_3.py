@@ -36,8 +36,9 @@ import torch.utils.data as t_data
 
 from utils.visualizer import Visualizer
 import utils.util as util
-from utils import image_quality
 
+#from utils import image_quality
+from utils import  calculate_PSNR_SSIM as image_quality
 import  utils.common as common 
 
 
@@ -80,7 +81,7 @@ class Treainer(object):
             raise Exception("unknow ")
                 
         
-        dis_net_str = opt.dis_net  if hasattr(opt,"dis_net") else "fc"
+        dis_net_str = opt.dis_net  if hasattr(opt,"dis_net") else "nlayer"
         if dis_net_str=="fc":
             self.netD = model.D()
 #             self.netD_vgg= model. D(input_c=512,input_width=18) 
@@ -103,7 +104,6 @@ class Treainer(object):
 
 
         init_weights(self.netD,init_type=opt.init)
-        init_weights(self.netD_vgg,init_type=opt.init)
         init_weights(self.netG,init_type=opt.init)
         
         self.vgg= self.vgg.to(self.device)
@@ -136,12 +136,12 @@ class Treainer(object):
          
         if opt.dis.optim =="sgd":
             self.optim_D= torch.optim.SGD( filter(lambda p: p.requires_grad, \
-                itertools.chain(self.netD_vgg.parameters(),self.netD.parameters() ) ),\
+                itertools.chain(self.netD.parameters() ) ),\
                 lr=opt.dis.lr,
              )
         elif opt.dis.optim =="adam":
             self.optim_D= torch.optim.Adam( filter(lambda p: p.requires_grad, \
-                itertools.chain(self.netD_vgg.parameters(),self.netD.parameters() ) ),\
+                itertools.chain(self.netD.parameters() ) ),\
                 lr=opt.dis.lr,betas=opt.dis.betas, weight_decay=0.0
              )
         else:
@@ -211,11 +211,12 @@ class Treainer(object):
             lr_list = []
             hr_list = []
             sr_list = []
+            img_list= [] 
             
             for ii,data   in  tqdm.tqdm( enumerate(self.dt_val_warm) ):
                 if type(data)== dict :
                     input_lr ,input_hr = data["LR"] ,data["HR"]
-                    cubic_hr = F.upsample(input_lr, scale_factor=4 , mode = "trilinear")
+                    #cubic_hr = F.upsample(input_lr, scale_factor=4 , mode = "trilinear")
                 else : 
                     if len(data)>3:
                         input_lr ,input_hr , cubic_hr,_,_ =data
@@ -225,32 +226,32 @@ class Treainer(object):
                 assert input_lr.size(0)==1 ,"batchsize is 1 "
                 self. input_lr = input_lr .to(self.device)
                 self. input_hr = input_hr .to(self.device)
-                self. input_cubic_hr = cubic_hr .to(self.device)
 
                 self.forward()
 
+                self.input_lr=F.upsample(self.input_lr,scale_factor=4)
                 
-                self.output_hr = common.Tensor2np(self.output_hr.mul_(255.))
-                self.input_hr = common.Tensor2np(self.input_hr.mul_(255.))
-                self.input_lr = common.Tensor2np(self.input_lr.mul_(255.))
-                self. input_cubic_hr = common.Tensor2np(self.input_cubic_hr.mul_(255.))
+                self.output_hr = common.Tensor2np(self.output_hr.mul_(255.).detach().cpu().squeeze_(0))
+                self.input_hr = common.Tensor2np(self.input_hr.mul_(255.).detach().cpu().squeeze_(0))
+                self.input_lr = common.Tensor2np(self.input_lr.mul_(255.).detach().cpu().squeeze_(0))
                 
-                ssim.append(image_quality.msssim(self.output_hr, self.input_hr).item())
-                psnr.append(image_quality.psnr( self.output_hr, self.input_hr ).item())
 
-                lr_list.append(self.input_lr)
                 sr_list.append(self.output_hr)
                 hr_list.append(self.input_hr)
 
-            
-            save_image_list = OrderedDict([
-                ("lr", np.concatenate(lr_list,axis=0 ) ),
-                ("hr", np.concatenate(hr_list,axis=0 ) ),
-                ("sr", np.concatenate(sr_list,axis=0 ) ),
-                ] ) 
-            self.visualizer.display_current_results(save_image_list,self.epoch, save_result=True, offset=20,title="val_imag")
+                img_list .append(np.concatenate([self.input_lr,self.output_hr,self.input_hr],axis=0) )
 
-            val_info = (np.mean(ssim),np.mean(psnr) )
+            data_ssim,data_psnr = image_quality .go_calc(list(zip(sr_list,hr_list)) ,False) 
+            
+            
+            for i,img_item in enumerate(img_list):
+                save_image_list = OrderedDict([
+                    ("lr_sr_hr", img_item ),
+                    ] ) 
+                self.visualizer.display_current_results(save_image_list,self.epoch, save_result=True, offset=20+i,title="val_imag")
+
+            #val_info = (np.mean(ssim),np.mean(psnr) )
+            val_info = (data_ssim,data_psnr )
             errors = dict(zip ( ("ssim","psnr") , val_info ) ) 
             t = (time.time() - iter_start_time) 
             self.visualizer.print_current_errors(self.epoch , self.epoch, errors, t,log_name="loss_log_val.txt")
@@ -292,23 +293,24 @@ class Treainer(object):
 
 
                 scale=4
-                if len(data)>3:
-                    input_lr ,input_hr , cubic_hr,input_lr_3,input_lr_2 =data 
-                    self. input_hr = input_hr .to(self.device)
+                if True :
+                    hr_2,input_lr_2 ,hr_3,input_lr_3,hr_4,input_lr =data[0][0],data[0][1],  data[1][0],data[1][1],   data[2][0],data[2][1] 
                     scale = np.random.choice([2,3,4])
+                    self. input_cubic_hr = hr_4.clone()
+
                     if scale==3 :
+                        input_hr= hr_3
                         self. input_lr = input_lr_3 .to(self.device)
-                        self. input_hr = input_hr[:,:,1:-1,1:-1] .to(self.device)
-                        assert self.input_hr.shape[-2:] == (294,294)
+                        #self. input_hr = input_hr[:,:,1:-1,1:-1] .to(self.device)
+                        self. input_hr = hr_3.to(self.device)#input_hr[:,:,1:-1,1:-1] .to(self.device)
                     elif scale==2 :
                         self. input_lr = input_lr_2 .to(self.device)
+                        self.input_hr =  hr_2.to(self.device)
                     else:
                         self. input_lr = input_lr .to(self.device)
-                else :
-                    input_lr ,input_hr , cubic_hr =data 
-                    self. input_hr = input_hr .to(self.device)
+                        self.input_hr =  hr_4.to(self.device)
                 
-                self. input_cubic_hr = cubic_hr
+                
 
                 iter_start_time = time.time()
 
@@ -398,16 +400,12 @@ class Treainer(object):
                 fake_data = self.output_hr.data,  device=self.device)
             gradient_penalty.backward()
 
-        loss_d =self.loss_D_f+ self.loss_D_r +self.loss_Df_f+\
-            self.loss_Df_r
+        loss_d =self.loss_D_f+ self.loss_D_r 
         loss_d.backward()
         
     def get_current_errors(self):
         return OrderedDict([('G_p', self.loss_G_p.item() if hasattr(self,"loss_G_p") else 0 ),
-                            ('G_fg', self.loss_G_fg.item()  if hasattr(self,"loss_G_fg") else 0 ),
                             ('G_g', self.loss_G_g.item()  if hasattr(self,"loss_G_g") else 0 ),
-                            ('D_f_real', self.loss_Df_r.item()  if hasattr(self,"loss_Df_r") else 0 ),
-                            ('D_f_fake', self.loss_Df_f.item()  if hasattr(self,"loss_Df_f") else 0 ),
                             ('D_real', self.loss_D_r.item()  if hasattr(self,"loss_D_r") else 0 ) ,
                             ('D_fake', self.loss_D_f.item()  if hasattr(self,"loss_D_f") else 0 ),
                             ('warm_p', self.loss_w_g.item()  if hasattr(self,"loss_w_g") else 0 ),
@@ -419,9 +417,11 @@ class Treainer(object):
                 dl = (v.shape[0]-size)//2
                 return v[dl:-dl,dl:-dl,:] 
             return v
-        input =mmsize( util.tensor2im(self.input_cubic_hr) ,294)
-        target =mmsize( util.tensor2im(self.input_hr) ,294)
-        fake =mmsize( util.tensor2im(self.output_hr.detach() ) , 294)
+        input_lr=F.upsample(self.input_lr,scale_factor=self.input_hr.size(-1)//self.input_lr.size(-1) )
+
+        input  =mmsize( util.tensor2im( input_lr    ) ,self.input_hr.size(-1) )
+        target =mmsize( util.tensor2im(self.input_hr) ,self.input_hr.size(-1) )
+        fake   =mmsize( util.tensor2im(self.output_hr.detach() ) , self.input_hr.size(-1) )
         #mmz = min([input.shape[0] ,target.shape[0],fake.shape[0] ] )
         
         return OrderedDict([('input', input),  ('fake', fake), ('target', target)])

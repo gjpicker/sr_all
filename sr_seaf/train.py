@@ -3,9 +3,9 @@ import argparse
 import yaml 
 
 import torch 
-import dataset as dt 
+import dataset2 as dt 
 #import trainer as tr 
-import trainer_2 as tr 
+import trainer_3 as tr 
 import torch.utils.data as t_data
 
 from collections import namedtuple
@@ -92,11 +92,11 @@ if __name__=="__main__":
 #         dt_pre = dt. TrainDatasetFromFolder(image_index_path=x_dir_imagenet,is_debug_size=is_debug_size)
         dt_gan = dt. TrainDatasetFromFolder(image_index_path=x_dir_vid2k,is_debug_size=is_debug_size)
         print ("debug mode::size->",len(dt_gan))
-        dt_gan_val = dt. TestDatasetFromFolder(image_index_path=x_dir_vid2k,is_debug_size=is_debug_size)
+        dt_gan_val = dt. TestDatasetFromFolder(train_config.val_data_root)
     else :
 #         dt_pre = dt. TrainDatasetFromFolder(image_index_path=x_dir_imagenet)
         dt_gan = dt. TrainDatasetFromFolder(image_index_path=x_dir_vid2k)
-        dt_gan_val = dt. TestDatasetFromFolder(image_index_path=x_dir_vid2k)
+        dt_gan_val = dt. TestDatasetFromFolder(image_index_path=train_config.val_data_root)
     # =====START: ADDED FOR DISTRIBUTED======
     #train_sampler = DistributedSampler(dt_c) if num_gpus > 1 else None
     # =====END:   ADDED FOR DISTRIBUTED======

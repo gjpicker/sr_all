@@ -10,13 +10,20 @@ import collections
 
 
 import pathlib
+
 # Converts a Tensor into a Numpy array
 # |imtype|: the desired type of the converted numpy array
-def tensor2im(image_tensor, imtype=np.uint8):
+def tensor2im(image_tensor, imtype=np.uint8,is_norm=False):
     image_numpy = image_tensor[0].cpu().float().numpy()
-    mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
+    if is_norm :
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+    else:
+        mean = np.array([0,0,0])
+        std = np.array([1,1,1])
+
     if image_numpy.shape[0] == 1:
+
         # posemap
         image_numpy = np.tile(image_numpy, (3, 1, 1))
         image_numpy = np.transpose(image_numpy, (1, 2, 0)) * 255.0

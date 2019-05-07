@@ -11,6 +11,24 @@ BINARY_EXTENSIONS = ['.npy']
 BENCHMARK = ['Set5', 'Set14', 'B100', 'Urban100', 'Manga109', 'DIV2K', 'DF2K']
 
 
+
+def quantize(img, rgb_range=255):
+    pixel_range = 255. / rgb_range
+    # return img.mul(pixel_range).clamp(0, 255).round().div(pixel_range)
+    return img.mul(pixel_range).clamp(0, 255).round()
+
+def Tensor2np(tensor_list, rgb_range=255):
+
+    def _Tensor2numpy(tensor, rgb_range=255):
+        array = np.transpose(quantize(tensor, rgb_range).numpy(), (1, 2, 0)).astype(np.uint8)
+        return array
+    if type(tensor_list) ==list :
+        return [_Tensor2numpy(tensor, rgb_range) for tensor in tensor_list]
+    else :
+        return _Tensor2numpy(tensor_list)
+
+
+
 ####################
 # Files & IO
 ####################

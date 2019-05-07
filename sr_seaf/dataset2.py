@@ -1,3 +1,5 @@
+from __future__ import  absolute_import
+
 import torch.utils.data as data
 # from torchvision.transforms import *
 # from os import listdir
@@ -15,7 +17,7 @@ import h5py
 
 # from . import dataset as old_dt 
 
-from .utils import common  
+from utils import common   as common
 
 def random_crop(hr, lr, size, scale):
     h, w = lr.shape[:-1]
@@ -57,7 +59,7 @@ class TrainDatasetFromFolder(data.Dataset):
                             
         super(TrainDatasetFromFolder, self).__init__()
 
-        scale = scale_factor 
+        scale = 0#scale_factor 
         self.size = crop_size//scale_factor
         
 
@@ -95,10 +97,12 @@ class TrainDatasetFromFolder(data.Dataset):
 
 
 class TestDatasetFromFolder(data.Dataset):
-    def __init__(self, image_root, scale_factor=4,is_normlize=True):
+    def __init__(self, image_index_path, scale_factor=4,is_normlize=True):
+        image_root = image_index_path
         self.is_normlize = is_normlize
         img_list = []
-        for item in common.BENCHMARK:
+        for item in ["Set5"]:
+        #for item in common.BENCHMARK:
             x_dir = os.path.abspath(os.path.join(image_root,item))
             if not  os.path.isdir(x_dir):
                 continue
